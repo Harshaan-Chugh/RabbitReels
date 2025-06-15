@@ -1,0 +1,4 @@
+pika
+openai
+python-dotenv
+pydantic

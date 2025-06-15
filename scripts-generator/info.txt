@@ -1,0 +1,6 @@
+Script Generator is the agent whose sole job is to turn a prompt (e.g. “Explain Bloom filters in 20 seconds”) 
+into a short text script.
+
+1. Consume { job_id, prompt } messages from scripts-queue
+2. Call Revid.ai’s Text-to-Brainrot endpoint (or your own logic) to generate a 15–30 s script
+3. Publish { job_id, title, script } to video-queue
