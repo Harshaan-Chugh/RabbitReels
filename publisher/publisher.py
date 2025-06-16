@@ -1,24 +1,34 @@
-import os, json
-import pika # type: ignore
-from google_auth_oauthlib.flow import InstalledAppFlow # type: ignore
-from googleapiclient.discovery import build # type: ignore
-from googleapiclient.http import MediaFileUpload # type: ignore
+import os, sys
+import pika
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+VIDEOS_DIR = os.path.join(BASE_DIR, "data", "videos")
 
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 from common.schemas import RenderJob
 from config import RABBIT_URL, PUBLISH_QUEUE, VIDEOS_DIR, CLIENT_SECRETS, TOKEN_PATH
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
 def get_youtube_client():
-    # OAuth2 flow + token storage
-    if os.path.exists(TOKEN_PATH):
-        from google.oauth2.credentials import Credentials # type: ignore
+    creds = None
+    if os.path.exists(TOKEN_PATH) and os.path.getsize(TOKEN_PATH) > 0:
         creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
-    else:
-        flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS, SCOPES)
-        creds = flow.run_console()
+
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS, SCOPES)
+            creds = flow.run_local_server(port=0)
+        
         with open(TOKEN_PATH, "w") as f:
             f.write(creds.to_json())
+
     return build("youtube", "v3", credentials=creds)
 
 yt = get_youtube_client()
@@ -29,7 +39,7 @@ def upload_to_youtube(path: str, title: str):
         part="snippet,status",
         body={
             "snippet": {"title": title, "description": "", "tags": ["CS"], "categoryId": "27"},
-            "status":  {"privacyStatus": "public"}
+            "status":  {"privacyStatus": "public", "selfDeclaredMadeForKids": True}
         },
         media_body=media
     )

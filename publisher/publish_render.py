@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../.env"))
 
-conn = pika.BlockingConnection(pika.URLParameters(os.getenv("RABBIT_URL")))
+conn = pika.BlockingConnection(pika.URLParameters("amqp://guest:guest@localhost:5672/"))
 ch   = conn.channel()
 ch.queue_declare(queue=os.getenv("PUBLISH_QUEUE"), durable=True)
 

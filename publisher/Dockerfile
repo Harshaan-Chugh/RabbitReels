@@ -1,16 +1,17 @@
 FROM python:3.11-slim
-
-# 1) Set working directory
 WORKDIR /app
 
-COPY requirements.txt .
-
+# 1) Install dependencies
+COPY publisher/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY publisher.py config.py README.md ./
+# 2) Copy only the code for this service
+COPY publisher/publisher.py .
+COPY publisher/config.py         .
 
-COPY ../common ../common
+# 3) Copy shared code
+COPY common ./common
 
-COPY credentials.json youtube-token.json ./
-
-CMD ["python", "publisher.py"]
+# Note: credentials.json & youtube-token.json live in /app/publisher via the
+#       directory mount you set up, and your config.py points at their paths.
+CMD ["python", "-u", "publisher.py"]
