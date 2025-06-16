@@ -1,5 +1,5 @@
 import os, json
-import pika
+import pika # type: ignore
 from common.schemas import ScriptJob, RenderJob
 from config import RABBIT_URL, VIDEO_QUEUE, PUBLISH_QUEUE, VIDEO_OUT_DIR
 

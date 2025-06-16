@@ -1,4 +1,4 @@
-from pydantic import BaseModel # Does Automatic validation/parsing of incoming JSON
+from pydantic import BaseModel # type: ignore # Does Automatic validation/parsing of incoming JSON
 from typing import Optional
 
 class PromptJob(BaseModel):

@@ -1,8 +1,8 @@
 import os, json
-import pika
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+import pika # type: ignore
+from google_auth_oauthlib.flow import InstalledAppFlow # type: ignore
+from googleapiclient.discovery import build # type: ignore
+from googleapiclient.http import MediaFileUpload # type: ignore
 
 from common.schemas import RenderJob
 from config import RABBIT_URL, PUBLISH_QUEUE, VIDEOS_DIR, CLIENT_SECRETS, TOKEN_PATH
@@ -12,7 +12,7 @@ SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 def get_youtube_client():
     # OAuth2 flow + token storage
     if os.path.exists(TOKEN_PATH):
-        from google.oauth2.credentials import Credentials
+        from google.oauth2.credentials import Credentials # type: ignore
         creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
     else:
         flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS, SCOPES)

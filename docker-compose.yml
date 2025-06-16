@@ -3,8 +3,37 @@ services:
   rabbitmq:
     image: rabbitmq:3-management
     ports:
-      - "5672:5672"    # Advanced Message Queuing Protocol Agents
+      - "5672:5672"    # AMQP
       - "15672:15672"  # Management UI
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
+
+  script-generator:
+    build: ./scripts-generator
+    env_file: .env
+    depends_on:
+      - rabbitmq
+
+  video-creator:
+    build: ./video-creator
+    env_file: .env
+    depends_on:
+      - rabbitmq
+    volumes:
+      - videos-data:/app/data/videos
+
+  publisher:
+    build: ./publisher
+    env_file: .env
+    depends_on:
+      - rabbitmq
+    volumes:
+      - videos-data:/app/data/videos
+      # OAuth client secret & token
+      - ./publisher/credentials.json:/app/credentials.json:ro
+      - ./publisher/youtube-token.json:/app/youtube-token.json
+
+volumes:
+  videos-data:
+    driver: local

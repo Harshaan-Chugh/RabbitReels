@@ -1,6 +1,6 @@
 import json
-import pika
-from openai import OpenAI
+import pika # type: ignore
+from openai import OpenAI # type: ignore
 from common.schemas import PromptJob, ScriptJob
 from config import *
 

@@ -1,5 +1,5 @@
 import os, sys
-from dotenv import load_dotenv
+from dotenv import load_dotenv # type: ignore
 
 sys.path.insert(0, os.path.abspath(os.path.join(__file__, "..")))
 
