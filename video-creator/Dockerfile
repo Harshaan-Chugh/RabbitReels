@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 COPY ../common ../common
 
-CMD ["python", "script_generator.py"]
+CMD ["python", "video_creator.py"]

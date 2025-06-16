@@ -1,0 +1,4 @@
+pika
+pydantic
+python-dotenv
+revid-ai

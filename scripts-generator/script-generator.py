@@ -1,32 +1,49 @@
 import json
 import pika
-import openai
+from openai import OpenAI
 from common.schemas import PromptJob, ScriptJob
 from config import *
 
-openai.api_key = OPENAI_API_KEY
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 def make_script(prompt_text: str) -> str:
-    resp = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4.1-nano",
         messages=[
-            {"role": "system", "content": "You explain CS concepts in 20 seconds."},
-            {"role": "user",   "content": f"Explain `{prompt_text}` in a 15–30s script that will be used for a YouTube short."}
+            { "role": "system",
+              "content": (
+                  "You are a social-media-savvy CS educator creating ultra-concise YouTube Shorts scripts. "
+                  "Each script must be around 30 seconds long, and follow a structure like:\n"
+                  "1. Hook\n"
+                  "2. Bold Claim\n"
+                  "3. Core Explanation (Go from basic to deep into at least one cool area of the topic)\n"
+                  "Use energetic, direct language; no fluff; end with a call to action."
+              )
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Create a script for: **{prompt_text}**\n"
+                    "- Total length: 30 seconds\n"
+                    "- Follow the structure given\n"
+                    "- No bullet points"
+                )
+            }
         ],
-        temperature=0.7,
-        max_tokens=200
+        temperature=0.6,
+        max_tokens=250
     )
-    return resp.choices[0].message.content.strip()
+    return response.choices[0].message.content.strip()
 
 def on_message(ch, method, props, body):
-    job = PromptJob.parse_raw(body)
+    job = PromptJob.model_validate_json(body)
     try:
         script = make_script(job.prompt)
         out_msg = ScriptJob(
             job_id=job.job_id,
             title = job.title or job.prompt,
             script=script
-        ).json()
+        ).model_dump_json()
         ch.basic_publish(
             exchange="",
             routing_key=VIDEO_QUEUE,
