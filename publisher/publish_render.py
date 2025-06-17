@@ -1,5 +1,5 @@
-import os, json, pika
-from dotenv import load_dotenv
+import os, json, pika                            # type: ignore
+from dotenv import load_dotenv                   # type: ignore
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../.env"))
 

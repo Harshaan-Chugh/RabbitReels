@@ -1,3 +1,8 @@
 pika
 pydantic
 python-dotenv
+requests
+moviepy==1.0.3
+numpy
+Pillow
+imageio-ffmpeg

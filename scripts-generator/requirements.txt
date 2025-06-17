@@ -1,4 +1,4 @@
 pika
-openai
+openai==1.87.0
 python-dotenv
 pydantic

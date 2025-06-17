@@ -1,14 +1,14 @@
-import os, sys
-import pika
+import os, sys                        # type: ignore
+import pika                           # type: ignore
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 VIDEOS_DIR = os.path.join(BASE_DIR, "data", "videos")
 
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+from google.auth.transport.requests import Request                 # type: ignore
+from google.oauth2.credentials import Credentials                  # type: ignore
+from google_auth_oauthlib.flow import InstalledAppFlow             # type: ignore
+from googleapiclient.discovery import build                        # type: ignore
+from googleapiclient.http import MediaFileUpload                   # type: ignore
 from common.schemas import RenderJob
 from config import RABBIT_URL, PUBLISH_QUEUE, VIDEOS_DIR, CLIENT_SECRETS, TOKEN_PATH
 
@@ -38,11 +38,20 @@ def upload_to_youtube(path: str, title: str):
     request = yt.videos().insert(
         part="snippet,status",
         body={
-            "snippet": {"title": title, "description": "", "tags": ["CS"], "categoryId": "27"},
-            "status":  {"privacyStatus": "public", "selfDeclaredMadeForKids": True}
+            "snippet": {
+                "title":       f"{title} #Shorts",
+                "description": "Explained in 20 seconds! #Shorts",
+                "tags":        ["CS", "Shorts"],
+                "categoryId":  "27"
+            },
+            "status": {
+                "privacyStatus":         "public",
+                "selfDeclaredMadeForKids": True
+            }
         },
         media_body=media
     )
+
     response = None
     while response is None:
         status, response = request.next_chunk()

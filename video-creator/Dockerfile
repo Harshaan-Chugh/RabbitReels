@@ -1,15 +1,15 @@
 FROM python:3.11-slim
 WORKDIR /app
 
-# 1) Install dependencies
+RUN apt-get update && \
+    apt-get install -y ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY video-creator/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 2) Copy only the code for this service
 COPY video-creator/video_creator.py .
 COPY video-creator/config.py        .
-
-# 3) Copy shared code
 COPY common ./common
 
-CMD ["python", "video_creator.py"]
+CMD ["python", "-u", "video_creator.py"]

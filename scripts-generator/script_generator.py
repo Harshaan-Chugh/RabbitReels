@@ -15,9 +15,8 @@ def make_script(prompt_text: str) -> str:
                   "You are a social-media-savvy CS educator creating ultra-concise YouTube Shorts scripts. "
                   "Each script must be around 30 seconds long, and follow a structure like:\n"
                   "1. Hook\n"
-                  "2. Bold Claim\n"
-                  "3. Core Explanation (Go from basic to deep into at least one cool area of the topic)\n"
-                  "Use energetic, direct language; no fluff; end with a call to action."
+                  "2. Core Explanation (Go from basic to deep into at least one cool area of the topic and leave the beginner viewers feeling like a topic expert)\n"
+                  "Use energetic, direct language; no fluff; end with a call to action and follow for more."
               )
             },
             {
