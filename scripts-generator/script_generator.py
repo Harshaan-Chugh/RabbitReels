@@ -34,15 +34,34 @@ def make_script(prompt_text: str) -> str:
     )
     return response.choices[0].message.content.strip()
 
+def make_title(prompt_text: str) -> str:
+    response = client.chat.completions.create(
+        model="gpt-4.1-nano",
+        messages=[
+            {"role":"system",
+             "content":(
+               "You are a YouTube Shorts title generator. "
+               "Produce a catchy, under-8-word title summarizing the topic."
+             )
+            },
+            {"role":"user", "content":prompt_text}
+        ],
+        temperature=0.7,
+        max_tokens=8
+    )
+    return response.choices[0].message.content.strip()
+
 def on_message(ch, method, props, body):
     job = PromptJob.model_validate_json(body)
     try:
         script = make_script(job.prompt)
+        title = make_title(job.prompt)
         out_msg = ScriptJob(
             job_id=job.job_id,
-            title = job.title or job.prompt,
+            title=title,
             script=script
         ).model_dump_json()
+
         ch.basic_publish(
             exchange="",
             routing_key=VIDEO_QUEUE,
