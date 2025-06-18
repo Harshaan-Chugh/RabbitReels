@@ -1,5 +1,6 @@
-from pydantic import BaseModel # type: ignore # Does Automatic validation/parsing of incoming JSON
-from typing import Optional
+from pydantic import BaseModel # type: ignore
+from typing import Optional, Literal
+
 
 class PromptJob(BaseModel):
     job_id: str
@@ -20,3 +21,12 @@ class PublishJob(BaseModel):
     job_id: str
     title: str
     storage_path: str
+
+class Turn(BaseModel):
+    speaker: Literal["peter", "stewie"]
+    text: str
+
+class DialogJob(BaseModel):
+    job_id: str
+    title: str
+    turns: list[Turn]

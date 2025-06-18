@@ -1,20 +1,20 @@
 import os
+import glob
+import json
 import tempfile
 import requests
-import random
-import glob
-import wave
-import numpy as np  # type: ignore
-import pika                                  # type: ignore
-from moviepy.editor import (
+import numpy as np # type: ignore
+import pika # type: ignore
+from moviepy.editor import ( # type: ignore
     VideoFileClip,
     AudioFileClip,
     CompositeAudioClip,
+    concatenate_audioclips,
     ImageClip,
     CompositeVideoClip,
 )
 from moviepy.audio.fx.all import audio_loop   # type: ignore
-from common.schemas import ScriptJob, RenderJob
+from common.schemas import DialogJob, RenderJob
 from config import (
     RABBIT_URL,
     VIDEO_QUEUE,
@@ -27,168 +27,200 @@ from config import (
     AUDIO_ASSETS_DIR,
 )
 
-# ElevenLabs key header + request WAV
-HEADERS = {
-    "xi-api-key": ELEVEN_API_KEY,
-    "Accept": "audio/wav"
-}
+# ------------------------------------------------------------------------
+#  constants / helpers
+# ------------------------------------------------------------------------
 
-def tts_to_file(text: str, wav_path: str) -> None:
-    """Call ElevenLabs TTS and save a proper .wav file."""
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{PETER_VOICE_ID}"
+HEADERS = {"xi-api-key": ELEVEN_API_KEY, "Accept": "audio/wav"}
+
+VOICE_MAP  = {"peter": PETER_VOICE_ID,  "stewie": STEWIE_VOICE_ID}
+IMG_MAP    = {"peter": "peter_griffin.png", "stewie": "stewie_griffin.png"}
+BOUNCE_MAP = {"peter": 40, "stewie": 55}
+
+
+def tts_to_file(text: str, voice_id: str, dst: str) -> None:
+    """Call ElevenLabs TTS API and save the result to a file."""
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
     data = {
         "text": text,
-        "model_id": "eleven_multilingual_v2",
-        "voice_settings": {"stability": 0.45, "similarity_boost": 0.8},
-        "output_format": "wav"
+        "model_id": "eleven_monolingual_v1",
+        "voice_settings": {"stability": 0.5, "similarity_boost": 0.8}
     }
-    resp = requests.post(url, headers=HEADERS, json=data, stream=True, timeout=60)
-    resp.raise_for_status()
-    with open(wav_path, "wb") as f:
-        for chunk in resp.iter_content(chunk_size=8192):
-            f.write(chunk)
+    
+    response = requests.post(url, json=data, headers=HEADERS)
+    response.raise_for_status()
+    
+    with open(dst, "wb") as f:
+        f.write(response.content)
 
 
-def render_video(job: ScriptJob) -> str:
-    os.makedirs(VIDEO_OUT_DIR, exist_ok=True)
-    out_mp4 = os.path.join(VIDEO_OUT_DIR, f"{job.job_id}.mp4")
+def compute_rms(audio_clip: AudioFileClip, fps: int) -> list[float]:
+    """Compute RMS envelope for audio clip to drive character animation."""
+    try:
+        # Get the audio array from the clip
+        audio_array = audio_clip.to_soundarray(fps=fps)
+        
+        # Handle mono/stereo - convert to mono for RMS calculation
+        if len(audio_array.shape) == 2:
+            # Stereo - average the channels
+            mono_audio = np.mean(audio_array, axis=1)
+        else:
+            # Already mono
+            mono_audio = audio_array
+        
+        # Compute RMS in small windows
+        window_size = int(fps * 0.05)  # 50ms windows
+        rms_values = []
+        
+        for i in range(0, len(mono_audio), window_size):
+            window = mono_audio[i:i+window_size]
+            if len(window) > 0:
+                rms = np.sqrt(np.mean(window**2))
+                rms_values.append(float(rms))
+        
+        # Normalize to 0-1 range
+        if rms_values:
+            max_rms = max(rms_values)
+            if max_rms > 0:
+                rms_values = [x / max_rms for x in rms_values]
+        
+        return rms_values
+    
+    except Exception as e:
+        print(f"Error computing RMS: {e}")
+        # Return a flat envelope as fallback
+        duration_frames = int(audio_clip.duration * fps / (fps * 0.05))
+        return [0.3] * max(1, duration_frames)
 
+
+# ------------------------------------------------------------------------
+#  main renderer
+# ------------------------------------------------------------------------
+
+def render_video(job: DialogJob) -> str:
+    """Render a dialog job into an MP4 file."""
+    
     with tempfile.TemporaryDirectory() as tmp:
-        wav_path = os.path.join(tmp, "speech.wav")
-
-        # 1) TTS → WAV
-        print("[→] Generating TTS…", flush=True)
-        tts_to_file(job.script, wav_path)
-
-        # 2) Load audio and stereo-ify if needed
-        tts_audio = AudioFileClip(wav_path)
-        if tts_audio.nchannels == 1:
-            tts_audio = tts_audio.set_channels(2)
-        duration = tts_audio.duration
+        bg = VideoFileClip(LONG_BG_VIDEO)
         fps = 24
 
-        # 3) Pick a random subclip from the background
-        print("[→] Loading long background…", flush=True)
-        bg = VideoFileClip(LONG_BG_VIDEO)
-        start = random.uniform(0, max(0, bg.duration - duration))
-        clip = bg.subclip(start, start + duration)
+        # ---- audio parts ------------------------------------------------
+        audio_parts = []
+        bobbles = []
+        t_cursor = 0.0
 
-        # 4) Center-crop to 1080×1920
-        clip = clip.crop(
-            width=1080,
-            height=1920,
-            x_center=clip.w / 2,
-            y_center=clip.h / 2,
-        )
+        for idx, turn in enumerate(job.turns):
+            wav_file = os.path.join(tmp, f"{idx}_{turn.speaker}.wav")
+            tts_to_file(turn.text, VOICE_MAP[turn.speaker], wav_file)
 
-        # 5) Transcode TTS → real PCM-WAV then compute RMS per video frame
-        pcm_wav = os.path.join(tmp, "speech_pcm.wav")
-        tts_audio.write_audiofile(
-            pcm_wav,
-            fps=44100,
-            nbytes=2,
-            codec="pcm_s16le",
-            verbose=False, logger=None
-        )
+            raw = AudioFileClip(wav_file)
+            if raw.nchannels == 1:
+                raw = raw.set_channels(2)
 
-        with wave.open(pcm_wav, "rb") as w:
-            sr        = w.getframerate()
-            n_ch      = w.getnchannels()
-            n_frames  = w.getnframes()
-            raw       = w.readframes(n_frames)
+            env = compute_rms(raw, fps)
+            clip = raw.set_start(t_cursor)
+            audio_parts.append(clip)
 
-        samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
-        if n_ch == 2:
-            samples = samples.reshape(-1, 2).mean(axis=1)
-        samples /= np.abs(samples).max() or 1.0
+            # ---- character bobble -------------------------------------------
+            img_path = os.path.join(os.path.dirname(__file__), 'assets', IMG_MAP[turn.speaker])
+            
+            def make_bobble_fn(envelope, bounce_height):
+                def bobble(t):
+                    frame_idx = int(t * fps * 0.05)  # Match the RMS window rate
+                    if frame_idx < len(envelope):
+                        y_offset = int(bounce_height * envelope[frame_idx])
+                        return ("center", 800 - y_offset)
+                    return ("center", 800)
+                return bobble
 
-        samples_per_f = int(sr / fps)
-        total_frames  = int(duration * fps)
-        rms_by_frame  = [
-            np.sqrt(np.mean(np.square(
-                samples[i*samples_per_f:(i+1)*samples_per_f]
-            ))) for i in range(total_frames)
-        ]
-        peak = max(rms_by_frame) or 1.0
-        rms_by_frame = [r/peak for r in rms_by_frame]
+            img_clip = (ImageClip(img_path)
+                        .set_duration(raw.duration)
+                        .set_start(t_cursor)
+                        .set_pos(make_bobble_fn(env, BOUNCE_MAP[turn.speaker])))
+            bobbles.append(img_clip)
 
-        # 6) Optional MP3 background
-        print("[→] Loading background tracks…", flush=True)
+            t_cursor += raw.duration
+
+        if not audio_parts:
+            raise ValueError("No audio parts generated")
+
+        total_dur = t_cursor
+        bg = (bg.subclip(0, total_dur)
+                .crop(width=1080, height=1920, x_center=bg.w/2, y_center=bg.h/2))
+
+        # ---- narration track --------------------------------------------
+        narration = CompositeAudioClip(audio_parts)
+
+        # ---- optional music underneath ----------------------------------
         mp3s = glob.glob(os.path.join(AUDIO_ASSETS_DIR, "*.mp3"))
         if mp3s:
-            track = random.choice(mp3s)
-            bg_audio = audio_loop(AudioFileClip(track), duration=duration).volumex(0.65)
-            final_audio = CompositeAudioClip([bg_audio, tts_audio])
+            music = AudioFileClip(mp3s[0])
+            music = audio_loop(music, duration=total_dur).volumex(0.1)
+            final_audio = CompositeAudioClip([narration, music])
         else:
-            final_audio = tts_audio
+            final_audio = narration
 
-        # 7) Bobble-head
-        bobble = (
-            ImageClip(os.path.join(AUDIO_ASSETS_DIR, "peter_griffin.png"))
-            .set_duration(duration)
-            .resize(height=450)
-        )
-        base_x = 30
-        base_y = 1920 - bobble.h - 225
-        max_bounce = 40
+        # ---- compose & export -------------------------------------------
+        video = CompositeVideoClip([bg] + bobbles).set_audio(final_audio)
+        
+        os.makedirs(VIDEO_OUT_DIR, exist_ok=True)
+        out_path = os.path.join(VIDEO_OUT_DIR, f"{job.job_id}.mp4")
+        
+        video.write_videofile(out_path, fps=fps, codec='libx264', audio_codec='aac')
+        
+        # Clean up
+        video.close()
+        bg.close()
+        for clip in audio_parts:
+            clip.close()
+        for clip in bobbles:
+            clip.close()
+        
+        return out_path
 
-        def bobble_pos(t):
-            idx = min(int(t * fps), len(rms_by_frame) - 1)
-            return (base_x, base_y - rms_by_frame[idx] * max_bounce)
 
-        bobble = bobble.set_position(bobble_pos)
-
-        # 8) Composite and attach audio
-        final_clip = CompositeVideoClip([clip, bobble]).set_audio(final_audio)
-
-        # 9) Export
-        print("[→] Rendering final MP4…", flush=True)
-        final_clip.write_videofile(
-            out_mp4,
-            codec="libx264",
-            audio_codec="aac",
-            bitrate="4000k",
-            threads=4,
-            fps=fps,
-            verbose=False,
-            logger=None,
-        )
-
-    return out_mp4
-
+# ------------------------------------------------------------------------
+#  RabbitMQ plumbing
+# ------------------------------------------------------------------------
 
 def on_message(ch, method, props, body):
-    job = ScriptJob.model_validate_json(body)
     try:
+        job = DialogJob.model_validate_json(body)
+        print(f"🎬 Rendering video for {job.job_id}...")
+        
         video_path = render_video(job)
-        msg = RenderJob(
-            job_id=job.job_id,
-            title=job.title,
-            storage_path=video_path,
-        ).model_dump_json()
-        ch.basic_publish(
-            exchange="",
+        
+        # Send to publish queue
+        render_job = RenderJob(job_id=job.job_id, title=job.title, storage_path=video_path)
+        
+        connection = pika.BlockingConnection(pika.URLParameters(RABBIT_URL))
+        channel = connection.channel()
+        channel.queue_declare(queue=PUBLISH_QUEUE, durable=True)
+        channel.basic_publish(
+            exchange='',
             routing_key=PUBLISH_QUEUE,
-            body=msg,
-            properties=pika.BasicProperties(delivery_mode=2),
+            body=render_job.model_dump_json(),
+            properties=pika.BasicProperties(delivery_mode=2)
         )
+        connection.close()
+        
+        print(f"✅ Video rendered: {video_path}")
         ch.basic_ack(delivery_tag=method.delivery_tag)
-        print(f"[✓] Rendered video for {job.job_id}", flush=True)
+        
     except Exception as e:
-        print(f"[✗] Rendering failed for {job.job_id}: {e}", flush=True)
+        print(f"[✗] Rendering failed for {getattr(job, 'job_id', 'unknown')}: {e}")
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 
 def main():
-    conn = pika.BlockingConnection(pika.URLParameters(RABBIT_URL))
-    ch = conn.channel()
-    ch.queue_declare(queue=VIDEO_QUEUE, durable=True)
-    ch.queue_declare(queue=PUBLISH_QUEUE, durable=True)
-    ch.basic_qos(prefetch_count=1)
-    ch.basic_consume(queue=VIDEO_QUEUE, on_message_callback=on_message)
-
-    print("🚀 Video Creator waiting for scripts…", flush=True)
-    ch.start_consuming()
+    connection = pika.BlockingConnection(pika.URLParameters(RABBIT_URL))
+    channel = connection.channel()
+    channel.queue_declare(queue=VIDEO_QUEUE, durable=True)
+    channel.basic_qos(prefetch_count=1)
+    channel.basic_consume(queue=VIDEO_QUEUE, on_message_callback=on_message)
+    
+    print("🚀 Video Creator waiting for scripts…")
+    channel.start_consuming()
 
 
 if __name__ == "__main__":

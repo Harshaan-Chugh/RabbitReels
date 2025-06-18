@@ -1,7 +1,7 @@
 import json
 import pika # type: ignore
 from openai import OpenAI # type: ignore
-from common.schemas import PromptJob, ScriptJob
+from common.schemas import PromptJob, DialogJob, Turn
 from config import *
 
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -34,6 +34,27 @@ def make_script(prompt_text: str) -> str:
     )
     return response.choices[0].message.content.strip()
 
+
+def make_dialog(prompt_text: str) -> list[dict]:
+    """Return a list of {speaker,text} turns ~30 s total."""
+    response = client.chat.completions.create(
+        model="gpt-4.1-nano",
+        messages=[
+            {"role": "system", "content": (
+                "Write a 30-second YouTube Shorts dialog.\n"
+                "Stewie asks snarky, curious questions, Peter answers clearly.\n"
+                "Alternate speakers each turn; finish with Stewie excited.\n"
+                "Return *ONLY* JSON like:\n"
+                "[{\"speaker\":\"stewie\",\"text\":\"...\"}, …]"
+            )},
+            {"role": "user", "content": prompt_text}
+        ],
+        temperature=0.7,
+        max_tokens=300
+    )
+    return json.loads(response.choices[0].message.content)
+
+
 def make_title(prompt_text: str) -> str:
     response = client.chat.completions.create(
         model="gpt-4.1-nano",
@@ -54,13 +75,14 @@ def make_title(prompt_text: str) -> str:
 def on_message(ch, method, props, body):
     job = PromptJob.model_validate_json(body)
     try:
-        script = make_script(job.prompt)
+        turns  = [Turn(**t) for t in make_dialog(job.prompt)]
         title = make_title(job.prompt)
-        out_msg = ScriptJob(
+        out_msg = DialogJob(
             job_id=job.job_id,
             title=title,
-            script=script
+            turns=turns
         ).model_dump_json()
+
 
         ch.basic_publish(
             exchange="",

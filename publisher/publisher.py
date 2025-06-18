@@ -81,6 +81,7 @@ def on_message(ch, method, props, body):
         vid_id = upload_to_youtube(video_path, job.title)
         print(f"[✓] Uploaded → https://youtu.be/{vid_id}")
         ch.basic_ack(delivery_tag=method.delivery_tag)
+        print("🚀 Publisher waiting for videos…")
     except Exception as e:
         print(f"[✗] Upload failed after retries: {e}")
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
