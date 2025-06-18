@@ -37,6 +37,8 @@ VOICE_MAP  = {"peter": PETER_VOICE_ID,  "stewie": STEWIE_VOICE_ID}
 IMG_MAP    = {"peter": "peter_griffin.png", "stewie": "stewie_griffin.png"}
 BOUNCE_MAP = {"peter": 40, "stewie": 55}
 
+CHAR_HEIGHT = 650
+
 
 def tts_to_file(text: str, voice_id: str, dst: str) -> None:
     """Call ElevenLabs TTS API and save the result to a file."""
@@ -124,19 +126,24 @@ def render_video(job: DialogJob) -> str:
             # ---- character bobble -------------------------------------------
             img_path = os.path.join(os.path.dirname(__file__), 'assets', IMG_MAP[turn.speaker])
             
-            def make_bobble_fn(envelope, bounce_height):
-                def bobble(t):
-                    frame_idx = int(t * fps * 0.05)  # Match the RMS window rate
-                    if frame_idx < len(envelope):
-                        y_offset = int(bounce_height * envelope[frame_idx])
-                        return ("center", 800 - y_offset)
-                    return ("center", 800)
-                return bobble
-
+            # sprite ----------------------------------------------------------------
             img_clip = (ImageClip(img_path)
+                        .resize(height=CHAR_HEIGHT)        # *** uniform size ***
                         .set_duration(raw.duration)
-                        .set_start(t_cursor)
-                        .set_pos(make_bobble_fn(env, BOUNCE_MAP[turn.speaker])))
+                        .set_start(t_cursor))
+
+            # anchor the sprite's **bottom-left** corner 30 px from each edge
+            base_x = 30
+            base_y = 1920 - CHAR_HEIGHT - 150               # 30 px bottom margin
+
+            def bobble(t, envelope=env, bx=base_x,
+                        by=base_y, bounce=BOUNCE_MAP[turn.speaker]):
+                idx = int(t * fps * 0.05)
+                if idx < len(envelope):
+                    return (bx, by - int(bounce * envelope[idx]))
+                return (bx, by)
+            
+            img_clip = img_clip.set_pos(bobble)
             bobbles.append(img_clip)
 
             t_cursor += raw.duration
