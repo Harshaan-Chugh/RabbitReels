@@ -20,9 +20,11 @@ from config import (
     VIDEO_OUT_DIR,
     ELEVEN_API_KEY,
     PETER_VOICE_ID,
-    STEWIE_VOICE_ID,    RICK_VOICE_ID,
+    STEWIE_VOICE_ID,
+    RICK_VOICE_ID,
     MORTY_VOICE_ID,
-    LONG_BG_VIDEO,    AUDIO_ASSETS_DIR,
+    LONG_BG_VIDEO,
+    AUDIO_ASSETS_DIR,
 )
 
 # ElevenLabs API headers
