@@ -5,7 +5,7 @@ from typing import Optional, Literal
 class PromptJob(BaseModel):
     job_id: str
     prompt: str
-    character_theme: str = "family_guy"  # Add theme, with a default
+    character_theme: str = "rick_and_morty"  # Add theme, with a default
     title: Optional[str] = None
 
 class ScriptJob(BaseModel):

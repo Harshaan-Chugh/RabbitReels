@@ -17,7 +17,7 @@ def main():
         "--theme",
         type=str,
         default="family_guy",
-        choices=["family_guy", "presidents"],
+        choices=["family_guy", "rick_and_morty"],
         help="The character theme to use for the dialog."
     )
     args = parser.parse_args()

@@ -22,8 +22,8 @@ PETER_VOICE_ID = os.getenv("PETER_VOICE_ID", "tP8wEHVL4B2h4NuNcRtl")
 STEWIE_VOICE_ID = os.getenv("STEWIE_VOICE_ID", "u58sF2rOukCb342nzwpN")
 
 # NEW: Add voice IDs for new characters
-OBAMA_VOICE_ID = os.getenv("OBAMA_VOICE_ID")
-TRUMP_VOICE_ID = os.getenv("TRUMP_VOICE_ID")
+RICK_VOICE_ID = os.getenv("RICK_VOICE_ID")
+MORTY_VOICE_ID = os.getenv("MORTY_VOICE_ID")
 
 # Local path to our long-form background video
 LONG_BG_VIDEO = os.getenv(

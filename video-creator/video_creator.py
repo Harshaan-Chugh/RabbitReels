@@ -20,22 +20,22 @@ from config import (
     VIDEO_OUT_DIR,
     ELEVEN_API_KEY,
     PETER_VOICE_ID,
-    STEWIE_VOICE_ID,
-    OBAMA_VOICE_ID,
-    TRUMP_VOICE_ID,
-    LONG_BG_VIDEO,
-    AUDIO_ASSETS_DIR,
+    STEWIE_VOICE_ID,    RICK_VOICE_ID,
+    MORTY_VOICE_ID,
+    LONG_BG_VIDEO,    AUDIO_ASSETS_DIR,
 )
+
+# ElevenLabs API headers
+HEADERS = {"xi-api-key": ELEVEN_API_KEY}
 
 # --- NEW: Generalized Character Asset Configuration ---
 CHARACTER_ASSETS = {
     "family_guy": {
         "peter": {"voice_id": PETER_VOICE_ID, "image": "peter_griffin.png"},
         "stewie": {"voice_id": STEWIE_VOICE_ID, "image": "stewie_griffin.png"}
-    },
-    "presidents": {
-        "obama": {"voice_id": OBAMA_VOICE_ID, "image": "obama.png"},
-        "trump": {"voice_id": TRUMP_VOICE_ID, "image": "trump.png"}
+    },    "rick_and_morty": {
+        "rick": {"voice_id": RICK_VOICE_ID, "image": "rick.png"},
+        "morty": {"voice_id": MORTY_VOICE_ID, "image": "morty.png"}
     }
 }
 CHAR_HEIGHT = 650

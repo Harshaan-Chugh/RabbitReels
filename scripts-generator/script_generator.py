@@ -14,12 +14,12 @@ CHARACTER_CONFIG = {
         "char2_persona": "the dim-witted, though well-meaning and great explainer",
         "starter": "stewie"
     },
-    "presidents": {
-        "char1_name": "obama",
-        "char1_persona": "calm, articulate, and thoughtful explainer who addresses Trump as Donny",
-        "char2_name": "trump",
-        "char2_persona": "questioning, boastful, direct speaker who uses simple, repetitive language and addresses Obama as Obama",
-        "starter": "trump"
+    "rick_and_morty": {
+        "char1_name": "rick",
+        "char1_persona": "brilliant but cynical scientist who explains things condescendingly and calls Morty 'Morty' or 'dummy'",
+        "char2_name": "morty",
+        "char2_persona": "nervous, questioning teenager who asks lots of questions and stutters, addresses Rick as 'Rick' or 'Aw geez Rick'",
+        "starter": "morty"
     }
 }
 
