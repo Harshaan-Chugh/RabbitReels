@@ -16,9 +16,9 @@ CHARACTER_CONFIG = {
     },
     "presidents": {
         "char1_name": "obama",
-        "char1_persona": "calm, articulate, and thoughtful explainer",
+        "char1_persona": "calm, articulate, and thoughtful explainer who addresses Trump as Donny",
         "char2_name": "trump",
-        "char2_persona": "questioning, boastful, direct, and uses simple, repetitive language",
+        "char2_persona": "questioning, boastful, direct speaker who uses simple, repetitive language and addresses Obama as Obama",
         "starter": "trump"
     }
 }
