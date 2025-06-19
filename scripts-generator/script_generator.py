@@ -9,9 +9,9 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 CHARACTER_CONFIG = {
     "family_guy": {
         "char1_name": "stewie",
-        "char1_persona": "snarky and curious",
+        "char1_persona": "snarky and curious, asks probing questions",
         "char2_name": "peter",
-        "char2_persona": "the dim-witted, though well-meaning and great explainer",
+        "char2_persona": "the dim-witted, though well-meaning and great explainer who does most of the teaching",
         "starter": "stewie"
     },
     "rick_and_morty": {
@@ -63,8 +63,9 @@ def make_dialog(prompt_text: str, theme: str) -> list[dict]:
         f"{config['char1_name'].title()} is {config['char1_persona']}.\n"
         f"{config['char2_name'].title()} is {config['char2_persona']}.\n"
         f"The dialog must alternate speakers, starting with {config['starter']}.\n"
+        f"IMPORTANT: {config['char2_name'].title()} should do most of the explaining and teaching, while {config['char1_name']} asks questions or makes snarky comments.\n"
         "You MUST return a valid JSON object. The root object must have a single key, 'dialog', which is a JSON array of turn objects.\n"
-        "Each turn object in the array MUST have exactly two keys: 'speaker' (string name) and 'text' (string: the character's line)."
+        f"Each turn object in the array MUST have exactly two keys: 'speaker' (string name - use EXACTLY '{config['char1_name']}' or '{config['char2_name']}' in lowercase) and 'text' (string: the character's line)."
     )
 
     response = client.chat.completions.create(
@@ -85,6 +86,11 @@ def make_dialog(prompt_text: str, theme: str) -> list[dict]:
         if not isinstance(turns_list, list):
             print(f"❌ LLM response did not contain a 'dialog' list. Raw response: {response.choices[0].message.content}")
             raise ValueError("Invalid JSON structure from LLM")
+        
+        # Ensure speaker names are lowercase to match CHARACTER_ASSETS
+        for turn in turns_list:
+            if 'speaker' in turn:
+                turn['speaker'] = turn['speaker'].lower()
             
         return turns_list
 

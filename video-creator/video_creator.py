@@ -322,11 +322,16 @@ def render_video(job: DialogJob) -> str:
         visuals     = []
 
         for turn in job.turns:
-            speaker_assets = asset_map.get(turn.speaker)
+            # Make speaker lookup case-insensitive
+            speaker_assets = None
+            for key, assets in asset_map.items():
+                if key.lower() == turn.speaker.lower():
+                    speaker_assets = assets
+                    break
+            
             if not speaker_assets:
-                raise ValueError(f"Assets for speaker '{turn.speaker}' not found in theme '{job.character_theme}'")
-
-            # TTS + timestamps (with fallback)
+                available_speakers = list(asset_map.keys())
+                raise ValueError(f"Assets for speaker '{turn.speaker}' not found in theme '{job.character_theme}'. Available speakers: {available_speakers}")            # TTS + timestamps (with fallback)
             try:
                 # Use voice_id from the new asset map
                 wav, wts = tts_with_timestamps(turn.text, speaker_assets["voice_id"], tmp)
@@ -339,6 +344,12 @@ def render_video(job: DialogJob) -> str:
             raw = AudioFileClip(wav)
             if raw.nchannels == 1:
                 raw = raw.set_channels(2)
+            
+            # Amplify Stewie's and Morty's voices by 25%
+            if turn.speaker.lower() in ['stewie', 'morty']:
+                raw = raw.volumex(1.25)
+                print(f"🔊 Amplified {turn.speaker}'s voice by 25%")
+            
             clip = raw.set_start(t_cursor)
             audio_parts.append(clip)
 
