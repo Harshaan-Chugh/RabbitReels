@@ -33,7 +33,6 @@ HEADERS = {"xi-api-key": ELEVEN_API_KEY, "Accept": "audio/wav"}
 
 VOICE_MAP   = {"peter": PETER_VOICE_ID,  "stewie": STEWIE_VOICE_ID}
 IMG_MAP     = {"peter": "peter_griffin.png", "stewie": "stewie_griffin.png"}
-BOUNCE_MAP  = {"peter": 55, "stewie": 55}
 CHAR_HEIGHT = 650
 
 # ── caption style ────────────────────────────────────────────────────────────
@@ -301,92 +300,6 @@ def build_caption_layers(sentence: str,
     print(f"✓ Created {len(clips)} caption clips for {len(lines)} lines")
     return clips
 
-def compute_rms(audio_clip: AudioFileClip, fps: int) -> list[float]:
-    """Compute RMS envelope for audio clip to drive character animation."""
-    try:
-        # Get the audio array from the clip
-        audio_array = audio_clip.to_soundarray(fps=fps)
-        
-        # Handle mono/stereo - convert to mono for RMS calculation
-        if len(audio_array.shape) == 2:
-            # Stereo - average the channels
-            mono_audio = np.mean(audio_array, axis=1)
-        else:
-            # Already mono
-            mono_audio = audio_array
-        
-        # Simple approach: divide audio into fixed-size chunks
-        duration = audio_clip.duration
-        target_samples = int(duration * 20)  # 20 samples per second
-        
-        if len(mono_audio) == 0:
-            return [0.3] * target_samples
-        
-        # Calculate chunk size
-        chunk_size = max(1, len(mono_audio) // target_samples)
-        
-        rms_values = []
-        for i in range(0, len(mono_audio), chunk_size):
-            chunk = mono_audio[i:i + chunk_size]
-            if len(chunk) > 0:
-                rms = np.sqrt(np.mean(chunk**2))
-                rms_values.append(float(rms))
-            
-            # Stop when we have enough samples
-            if len(rms_values) >= target_samples:
-                break
-        
-        # Pad if we don't have enough samples
-        while len(rms_values) < target_samples:
-            rms_values.append(rms_values[-1] if rms_values else 0.3)
-        
-        # Trim if we have too many
-        rms_values = rms_values[:target_samples]
-        
-        # Normalize to 0-1 range
-        if rms_values:
-            max_rms = max(rms_values)
-            if max_rms > 0:
-                rms_values = [x / max_rms for x in rms_values]
-        
-        print(f"✓ Generated {len(rms_values)} RMS samples for {duration:.1f}s audio")
-        return rms_values
-    
-    except Exception as e:
-        print(f"Error computing RMS: {e}")
-        # Return a safe fallback
-        duration_samples = max(1, int(getattr(audio_clip, 'duration', 1.0) * 20))
-        return [0.3] * duration_samples
-
-# Also fix the bobble function to be more robust
-def make_bobble_func(envelope, base_x, base_y, bounce_amount, clip_start_time):
-    def bobble_func(t):
-        # Calculate the clip's local time
-        local_t = t - clip_start_time
-        
-        # Ensure we're in bounds
-        if local_t < 0:
-            return (base_x, base_y)
-        
-        # Convert local time to envelope index (20 samples per second)
-        idx = int(local_t * 20)
-        
-        # Clamp index to valid range
-        if idx >= len(envelope):
-            idx = len(envelope) - 1
-        elif idx < 0:
-            idx = 0
-        
-        # Apply bounce
-        if 0 <= idx < len(envelope):
-            bounce_offset = int(bounce_amount * envelope[idx])
-            return (base_x, base_y - bounce_offset)
-        
-        # Fallback to base position
-        return (base_x, base_y)
-    
-    return bobble_func
-
 def render_video(job: DialogJob) -> str:
     """Render a dialog job into an MP4 file."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -394,7 +307,7 @@ def render_video(job: DialogJob) -> str:
         fps      = 24
         t_cursor = 0.0
         audio_parts = []
-        bobbles     = []
+        visuals     = []
 
         for turn in job.turns:
             # TTS + timestamps (with fallback)
@@ -409,30 +322,26 @@ def render_video(job: DialogJob) -> str:
             raw = AudioFileClip(wav)
             if raw.nchannels == 1:
                 raw = raw.set_channels(2)
-            env  = compute_rms(raw, fps)
             clip = raw.set_start(t_cursor)
             audio_parts.append(clip)
 
-            # capture this turn's start time - FIX THE CLOSURE ISSUE
-            current_start_time = t_cursor  # Capture the current value, don't reference the variable
-
-            # bobble-head - Use the properly defined function
+            # Static character sprite (no bouncing)
             img = os.path.join(os.path.dirname(__file__), "assets", IMG_MAP[turn.speaker])
             
-            bob = (
+            sprite = (
                 ImageClip(img)
                 .resize(height=CHAR_HEIGHT)
                 .set_duration(raw.duration)
-                .set_start(current_start_time)
-                .set_position(make_bobble_func(env, 30, 1920-CHAR_HEIGHT-150, BOUNCE_MAP[turn.speaker], current_start_time))
+                .set_start(t_cursor)
+                .set_position((30, 1920-CHAR_HEIGHT-150))  # Static position
             )
-            bobbles.append(bob)
+            visuals.append(sprite)
             
-            print(f"🎭 Added {turn.speaker} bobble: start={current_start_time:.1f}s, duration={raw.duration:.1f}s, bounce={BOUNCE_MAP[turn.speaker]}")
+            print(f"🎭 Added {turn.speaker} static sprite: start={t_cursor:.1f}s, duration={raw.duration:.1f}s")
 
             # captions
-            caps = build_caption_layers(turn.text, wts, current_start_time)
-            bobbles.extend(caps)
+            caps = build_caption_layers(turn.text, wts, t_cursor)
+            visuals.extend(caps)
 
             t_cursor += raw.duration
 
@@ -456,7 +365,7 @@ def render_video(job: DialogJob) -> str:
         else:
             final_audio = narration
 
-        video = CompositeVideoClip([bg] + bobbles).set_audio(final_audio)
+        video = CompositeVideoClip([bg] + visuals).set_audio(final_audio)
         os.makedirs(VIDEO_OUT_DIR, exist_ok=True)
         out = os.path.join(VIDEO_OUT_DIR, f"{job.job_id}.mp4")
         video.write_videofile(out, fps=fps, codec="libx264", audio_codec="aac")
@@ -464,7 +373,7 @@ def render_video(job: DialogJob) -> str:
         # cleanup
         video.close(); bg.close()
         for c in audio_parts: c.close()
-        for c in bobbles:     c.close()
+        for c in visuals:     c.close()
         return out
 
 def on_message(ch, method, props, body):
