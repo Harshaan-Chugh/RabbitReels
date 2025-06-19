@@ -13,7 +13,7 @@ def make_script(prompt_text: str) -> str:
             { "role": "system",
               "content": (
                   "You are a social-media-savvy CS educator creating ultra-concise YouTube Shorts scripts. "
-                  "Each script must be around 30 seconds long, and follow a structure like:\n"
+                  "Each script must be around 30-40 seconds long, and follow a structure like:\n"
                   "1. Hook\n"
                   "2. Core Explanation (Go from basic to deep into at least one cool area of the topic and leave the beginner viewers feeling like a topic expert)\n"
                   "Use energetic, direct language; no fluff; end with a call to action and follow for more."
@@ -23,7 +23,7 @@ def make_script(prompt_text: str) -> str:
                 "role": "user",
                 "content": (
                     f"Create a script for: **{prompt_text}**\n"
-                    "- Total length: 30 seconds\n"
+                    "- Total length: 30-40 seconds\n"
                     "- Follow the structure given\n"
                     "- No bullet points"
                 )

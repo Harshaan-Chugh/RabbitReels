@@ -49,7 +49,7 @@ def upload_to_youtube(path: str, title: str):
             },
             "status": {
                 "privacyStatus": "public",
-                "selfDeclaredMadeForKids": True
+                "selfDeclaredMadeForKids": False
             }
         },
         media_body=media
