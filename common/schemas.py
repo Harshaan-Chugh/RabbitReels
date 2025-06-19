@@ -5,6 +5,7 @@ from typing import Optional, Literal
 class PromptJob(BaseModel):
     job_id: str
     prompt: str
+    character_theme: str = "family_guy"  # Add theme, with a default
     title: Optional[str] = None
 
 class ScriptJob(BaseModel):
@@ -23,10 +24,11 @@ class PublishJob(BaseModel):
     storage_path: str
 
 class Turn(BaseModel):
-    speaker: Literal["peter", "stewie"]
+    speaker: str  # Make speaker a generic string instead of Literal
     text: str
 
 class DialogJob(BaseModel):
     job_id: str
     title: str
+    character_theme: str  # Pass theme along to the video creator
     turns: list[Turn]

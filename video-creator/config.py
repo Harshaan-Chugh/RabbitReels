@@ -21,6 +21,10 @@ ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 PETER_VOICE_ID = os.getenv("PETER_VOICE_ID", "tP8wEHVL4B2h4NuNcRtl")
 STEWIE_VOICE_ID = os.getenv("STEWIE_VOICE_ID", "u58sF2rOukCb342nzwpN")
 
+# NEW: Add voice IDs for new characters
+OBAMA_VOICE_ID = os.getenv("OBAMA_VOICE_ID")
+TRUMP_VOICE_ID = os.getenv("TRUMP_VOICE_ID")
+
 # Local path to our long-form background video
 LONG_BG_VIDEO = os.getenv(
     "LONG_BG_VIDEO",

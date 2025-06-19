@@ -21,18 +21,23 @@ from config import (
     ELEVEN_API_KEY,
     PETER_VOICE_ID,
     STEWIE_VOICE_ID,
+    OBAMA_VOICE_ID,
+    TRUMP_VOICE_ID,
     LONG_BG_VIDEO,
     AUDIO_ASSETS_DIR,
 )
 
-# ------------------------------------------------------------------------
-#  constants / helpers
-# ------------------------------------------------------------------------
-
-HEADERS = {"xi-api-key": ELEVEN_API_KEY, "Accept": "audio/wav"}
-
-VOICE_MAP   = {"peter": PETER_VOICE_ID,  "stewie": STEWIE_VOICE_ID}
-IMG_MAP     = {"peter": "peter_griffin.png", "stewie": "stewie_griffin.png"}
+# --- NEW: Generalized Character Asset Configuration ---
+CHARACTER_ASSETS = {
+    "family_guy": {
+        "peter": {"voice_id": PETER_VOICE_ID, "image": "peter_griffin.png"},
+        "stewie": {"voice_id": STEWIE_VOICE_ID, "image": "stewie_griffin.png"}
+    },
+    "presidents": {
+        "obama": {"voice_id": OBAMA_VOICE_ID, "image": "obama.png"},
+        "trump": {"voice_id": TRUMP_VOICE_ID, "image": "trump.png"}
+    }
+}
 CHAR_HEIGHT = 650
 
 # ── caption style ────────────────────────────────────────────────────────────
@@ -302,6 +307,11 @@ def build_caption_layers(sentence: str,
 
 def render_video(job: DialogJob) -> str:
     """Render a dialog job into an MP4 file."""
+    # Get the asset map for the current theme
+    asset_map = CHARACTER_ASSETS.get(job.character_theme)
+    if not asset_map:
+        raise ValueError(f"No assets found for theme: {job.character_theme}")
+
     with tempfile.TemporaryDirectory() as tmp:
         bg       = VideoFileClip(LONG_BG_VIDEO)
         fps      = 24
@@ -310,12 +320,17 @@ def render_video(job: DialogJob) -> str:
         visuals     = []
 
         for turn in job.turns:
+            speaker_assets = asset_map.get(turn.speaker)
+            if not speaker_assets:
+                raise ValueError(f"Assets for speaker '{turn.speaker}' not found in theme '{job.character_theme}'")
+
             # TTS + timestamps (with fallback)
             try:
-                wav, wts = tts_with_timestamps(turn.text, VOICE_MAP[turn.speaker], tmp)
+                # Use voice_id from the new asset map
+                wav, wts = tts_with_timestamps(turn.text, speaker_assets["voice_id"], tmp)
             except requests.exceptions.HTTPError:
                 wav = os.path.join(tmp, f"{hash(turn.text)}.wav")
-                tts_to_file(turn.text, VOICE_MAP[turn.speaker], wav)
+                tts_to_file(turn.text, speaker_assets["voice_id"], wav)
                 dur = AudioFileClip(wav).duration
                 wts = [{"word": turn.text, "start": 0.0, "end": dur}]
 
@@ -326,10 +341,11 @@ def render_video(job: DialogJob) -> str:
             audio_parts.append(clip)
 
             # Static character sprite (no bouncing)
-            img = os.path.join(os.path.dirname(__file__), "assets", IMG_MAP[turn.speaker])
+            # Use image from the new asset map
+            img_path = os.path.join(os.path.dirname(__file__), "assets", speaker_assets["image"])
             
             sprite = (
-                ImageClip(img)
+                ImageClip(img_path)
                 .resize(height=CHAR_HEIGHT)
                 .set_duration(raw.duration)
                 .set_start(t_cursor)

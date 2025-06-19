@@ -6,6 +6,23 @@ from config import *
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+CHARACTER_CONFIG = {
+    "family_guy": {
+        "char1_name": "stewie",
+        "char1_persona": "snarky and curious",
+        "char2_name": "peter",
+        "char2_persona": "the dim-witted, though well-meaning and great explainer",
+        "starter": "stewie"
+    },
+    "presidents": {
+        "char1_name": "obama",
+        "char1_persona": "calm, articulate, and thoughtful explainer",
+        "char2_name": "trump",
+        "char2_persona": "questioning, boastful, direct, and uses simple, repetitive language",
+        "starter": "trump"
+    }
+}
+
 def make_script(prompt_text: str) -> str:
     response = client.chat.completions.create(
         model="gpt-4.1-nano",
@@ -35,24 +52,46 @@ def make_script(prompt_text: str) -> str:
     return response.choices[0].message.content.strip()
 
 
-def make_dialog(prompt_text: str) -> list[dict]:
-    """Return a list of {speaker,text} turns ~30 s total."""
+def make_dialog(prompt_text: str, theme: str) -> list[dict]:
+    """Return a list of {speaker,text} turns ~30 s total for a given theme."""
+    config = CHARACTER_CONFIG.get(theme)
+    if not config:
+        raise ValueError(f"Invalid character theme: {theme}")
+
+    system_prompt = (
+        f"You are a scriptwriter for a YouTube Short. Write a 30-second dialog between {config['char1_name']} and {config['char2_name']}.\n"
+        f"{config['char1_name'].title()} is {config['char1_persona']}.\n"
+        f"{config['char2_name'].title()} is {config['char2_persona']}.\n"
+        f"The dialog must alternate speakers, starting with {config['starter']}.\n"
+        "You MUST return a valid JSON object. The root object must have a single key, 'dialog', which is a JSON array of turn objects.\n"
+        "Each turn object in the array MUST have exactly two keys: 'speaker' (string name) and 'text' (string: the character's line)."
+    )
+
     response = client.chat.completions.create(
         model="gpt-4.1-nano",
+        response_format={"type": "json_object"}, # Enforce JSON mode
         messages=[
-            {"role": "system", "content": (
-                "Write a 30-second YouTube Shorts dialog.\n"
-                "Stewie asks snarky, curious questions, Peter answers clearly.\n"
-                "Alternate speakers each turn; finish with Stewie excited.\n"
-                "Return *ONLY* JSON like:\n"
-                "[{\"speaker\":\"stewie\",\"text\":\"...\"}, …]"
-            )},
-            {"role": "user", "content": prompt_text}
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Create a dialog about: {prompt_text}"}
         ],
         temperature=0.7,
-        max_tokens=300
+        max_tokens=400
     )
-    return json.loads(response.choices[0].message.content)
+    
+    try:
+        response_data = json.loads(response.choices[0].message.content)
+        turns_list = response_data.get("dialog")
+        
+        if not isinstance(turns_list, list):
+            print(f"❌ LLM response did not contain a 'dialog' list. Raw response: {response.choices[0].message.content}")
+            raise ValueError("Invalid JSON structure from LLM")
+            
+        return turns_list
+
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"❌ Error processing LLM response: {e}")
+        print(f"Raw LLM response: {response.choices[0].message.content}")
+        raise
 
 
 def make_title(prompt_text: str) -> str:
@@ -75,12 +114,14 @@ def make_title(prompt_text: str) -> str:
 def on_message(ch, method, props, body):
     job = PromptJob.model_validate_json(body)
     try:
-        turns  = [Turn(**t) for t in make_dialog(job.prompt)]
+        # Use the theme from the job to generate the dialog
+        turns  = [Turn(**t) for t in make_dialog(job.prompt, job.character_theme)]
         title = make_title(job.prompt)
         out_msg = DialogJob(
             job_id=job.job_id,
             title=title,
-            turns=turns
+            turns=turns,
+            character_theme=job.character_theme # Pass theme to the next service
         ).model_dump_json()
 
 
@@ -91,7 +132,7 @@ def on_message(ch, method, props, body):
             properties=pika.BasicProperties(delivery_mode=2)
         )
         ch.basic_ack(delivery_tag=method.delivery_tag)
-        print(f"[✓] Generated script for {job.job_id}")
+        print(f"[✓] Generated '{job.character_theme}' script for {job.job_id}")
     except Exception as e:
         print(f"[✗] Failed {job.job_id}: {e}")
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
