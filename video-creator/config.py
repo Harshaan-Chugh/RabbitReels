@@ -13,6 +13,9 @@ RABBIT_URL    = os.getenv("RABBIT_URL")
 VIDEO_QUEUE   = os.getenv("VIDEO_QUEUE", "video-queue")
 PUBLISH_QUEUE = os.getenv("PUBLISH_QUEUE", "publish-queue")
 
+# Publisher settings
+ENABLE_PUBLISHER = os.getenv("ENABLE_PUBLISHER", "false").lower() == "true"
+
 # Where to write out MP4s
 VIDEO_OUT_DIR = os.getenv("VIDEO_OUT_DIR", "../data/videos")
 
@@ -24,6 +27,9 @@ STEWIE_VOICE_ID = os.getenv("STEWIE_VOICE_ID", "u58sF2rOukCb342nzwpN")
 # NEW: Add voice IDs for new characters
 RICK_VOICE_ID = os.getenv("RICK_VOICE_ID")
 MORTY_VOICE_ID = os.getenv("MORTY_VOICE_ID")
+
+# Redis settings for status updates
+REDIS_URL = os.getenv("REDIS_URL")
 
 # Local path to our long-form background video
 LONG_BG_VIDEO = os.getenv(

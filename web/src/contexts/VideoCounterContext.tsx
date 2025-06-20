@@ -11,28 +11,52 @@ const VideoCounterContext = createContext<VideoCounterContextType | undefined>(u
 
 export function VideoCounterProvider({ children }: { children: ReactNode }) {
   const [videoCount, setVideoCount] = useState(0);
-  // Load video count from localStorage on mount
+  
+  // Load video count from API on mount
   useEffect(() => {
-    // For testing purposes, start with 0. Remove this line later if you want persistence
-    localStorage.removeItem('videoCount');
-    setVideoCount(0);
+    const fetchVideoCount = async () => {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/video-count`);
+        if (response.ok) {
+          const data = await response.json();
+          setVideoCount(data.count);
+        }
+      } catch (error) {
+        console.error('Failed to fetch video count:', error);
+        // Fallback to localStorage if API is not available
+        const savedCount = localStorage.getItem('videoCount');
+        if (savedCount) {
+          setVideoCount(parseInt(savedCount, 10));
+        }
+      }
+    };
     
-    // Uncomment these lines to restore localStorage functionality:
-    // const savedCount = localStorage.getItem('videoCount');
-    // if (savedCount) {
-    //   setVideoCount(parseInt(savedCount, 10));
-    // } else {
-    //   setVideoCount(0);
-    // }
+    fetchVideoCount();
   }, []);
 
-  // Save video count to localStorage whenever it changes
+  // Save to localStorage as backup
   useEffect(() => {
     localStorage.setItem('videoCount', videoCount.toString());
   }, [videoCount]);
 
-  const incrementVideoCount = () => {
-    setVideoCount(prev => prev + 1);
+  const incrementVideoCount = async () => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/video-count/increment`, {
+        method: 'POST',
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setVideoCount(data.count);
+      } else {
+        // Fallback to local increment if API fails
+        setVideoCount(prev => prev + 1);
+      }
+    } catch (error) {
+      console.error('Failed to increment video count:', error);
+      // Fallback to local increment if API fails
+      setVideoCount(prev => prev + 1);
+    }
   };
 
   return (

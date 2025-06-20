@@ -2,6 +2,7 @@
 import os, glob, json, tempfile, base64, re, random
 import requests, numpy as np            # type: ignore
 import pika                             # type: ignore
+import redis                            # type: ignore
 from typing import List, Dict, Tuple
 from moviepy.editor import (            # type: ignore
     VideoFileClip,
@@ -25,6 +26,8 @@ from config import (
     MORTY_VOICE_ID,
     LONG_BG_VIDEO,
     AUDIO_ASSETS_DIR,
+    REDIS_URL,
+    ENABLE_PUBLISHER,
 )
 
 # ElevenLabs API headers
@@ -425,21 +428,87 @@ def on_message(ch, method, props, body):
     job = DialogJob.model_validate_json(body)
     try:
         print(f"🐰 Rendering video for {job.job_id}…")
+        
+        # Update status to rendering in Redis
+        try:
+            r = redis.from_url(REDIS_URL, decode_responses=True)
+            status_data = {
+                "job_id": job.job_id,
+                "status": "rendering",
+                "progress": 0.1
+            }
+            r.set(job.job_id, json.dumps(status_data))
+            print(f"Updated Redis status to 'rendering' for {job.job_id}")
+        except Exception as e:
+            print(f"Warning: Failed to update Redis status to rendering: {e}")
+        
         path = render_video(job)
+          # Update status to done in Redis with proper verification
+        try:
+            r = redis.from_url(REDIS_URL, decode_responses=True)
+            
+            # Verify file exists and has reasonable size
+            if os.path.exists(path) and os.path.getsize(path) > 1000:  # At least 1KB
+                status_data = {
+                    "job_id": job.job_id,
+                    "status": "done",
+                    "download_url": f"/videos/{job.job_id}/file"
+                }
+                r.set(job.job_id, json.dumps(status_data))
+                print(f"Updated Redis status to 'done' for {job.job_id}")
+            else:
+                raise Exception("Video file not created properly")
+        except Exception as e:
+            print(f"Error updating Redis status to done: {e}")
+            # Update to error status
+            try:
+                error_status = {
+                    "job_id": job.job_id,
+                    "status": "error",
+                    "error_msg": f"Video creation failed: {str(e)}"
+                }
+                r.set(job.job_id, json.dumps(error_status))
+            except:
+                pass
+            raise
+        
         msg  = RenderJob(job_id=job.job_id,
                          title=job.title,
                          storage_path=path).model_dump_json()
-        conn = pika.BlockingConnection(pika.URLParameters(RABBIT_URL))
-        chan = conn.channel()
-        chan.queue_declare(queue=PUBLISH_QUEUE, durable=True)
-        chan.basic_publish(exchange="", routing_key=PUBLISH_QUEUE,
-                          body=msg,
-                          properties=pika.BasicProperties(delivery_mode=2))
-        conn.close()
+        
+        # Only publish to publisher queue if publisher is enabled
+        if ENABLE_PUBLISHER:
+            try:
+                conn = pika.BlockingConnection(pika.URLParameters(RABBIT_URL))
+                chan = conn.channel()
+                chan.queue_declare(queue=PUBLISH_QUEUE, durable=True)
+                chan.basic_publish(exchange="", routing_key=PUBLISH_QUEUE,
+                                  body=msg,
+                                  properties=pika.BasicProperties(delivery_mode=2))
+                conn.close()
+                print(f"✅ Video published to queue: {path}")
+            except Exception as pub_e:
+                print(f"⚠️ Publisher queue failed (this is OK if publisher is disabled): {pub_e}")
+        else:
+            print(f"✅ Video ready (publisher disabled): {path}")
+            
         ch.basic_ack(delivery_tag=method.delivery_tag)
-        print(f"✅ Video published: {path}")
     except Exception as e:
         print(f"[✗] Rendering failed for {job.job_id}: {e}")
+        
+        # Update Redis status to error
+        try:
+            r = redis.from_url(REDIS_URL, decode_responses=True)
+            error_status = {
+                "job_id": job.job_id,
+                "status": "error",
+                "error_msg": f"Rendering failed: {str(e)}"
+            }
+            r.set(job.job_id, json.dumps(error_status))
+            print(f"Updated Redis status to 'error' for {job.job_id}")
+        except Exception as redis_e:
+            print(f"Warning: Failed to update Redis error status: {redis_e}")
+        
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 def main():

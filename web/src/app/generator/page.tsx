@@ -20,7 +20,6 @@ export default function Generator() {
   const [prompt, setPrompt] = useState("");
   const [status, setStatus] = useState<Status>({ stage: "idle" });
   const { darkMode, toggleDarkMode } = useTheme();  const { incrementVideoCount } = useVideoCounter();
-
   // Polling hook -------------------------------------------------------
   useEffect(() => {
     if (status.stage !== "queued" && status.stage !== "rendering") return;
@@ -32,6 +31,8 @@ export default function Generator() {
         const js = await r.json();
         if (js.status === "done") {
           setStatus({ stage: "done", jobId: id, downloadUrl: js.download_url });
+          // Increment video count when video is actually done
+          incrementVideoCount();
           clearInterval(t);
         } else if (js.status === "error") {
           setStatus({ stage: "error", msg: js.error_msg || "unknown error" });
@@ -44,7 +45,7 @@ export default function Generator() {
       }
     }, 5000);
     return () => clearInterval(t);
-  }, [status]);
+  }, [status, incrementVideoCount]);
   // Submit -------------------------------------------------------------
   const handleCreate = async () => {
     if (!prompt.trim()) return alert("Enter a prompt!");
@@ -59,10 +60,8 @@ export default function Generator() {
       });
       if (!r.ok) {
         const msg = await r.text();
-        return alert(`Error: ${msg}`);
-      }
-      // Increment the video counter when a video is successfully created
-      incrementVideoCount();
+        return alert(`Error: ${msg}`);      }
+      // Don't increment here anymore - wait for completion
       setStatus({ stage: "queued", jobId });
     } catch (error) {
       alert(`Network error: ${error}`);

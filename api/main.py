@@ -66,11 +66,10 @@ def get_rabbit_channel():
 async def status_consumer():
     """Background task to consume status updates from RabbitMQ."""
     logger.info("Starting status consumer...")
-    
-    # For now, we'll implement a simple approach:
+      # For now, we'll implement a simple approach:
     # 1. When jobs are submitted, they start as "queued"
-    # 2. We'll have a periodic task to check for completed MP4 files
-    # 3. When MP4 exists, we mark status as "done"
+    # 2. The video-creator service will update Redis status directly
+    # 3. This consumer only handles transitioning from queued to rendering
     
     while True:
         try:
@@ -81,7 +80,8 @@ async def status_consumer():
             job_keys = r.keys("*")
             
             for job_key in job_keys:
-                if job_key in ["health", "status"]:  # Skip non-job keys
+                # Skip non-job keys
+                if job_key in ["health", "status", "video_generation_count"]:
                     continue
                     
                 try:
@@ -97,20 +97,13 @@ async def status_consumer():
                     
                     job_id = status_info.get("job_id", job_key)
                     
-                    # Check if MP4 file exists
-                    video_path = os.path.join(VIDEO_OUT_DIR, f"{job_id}.mp4")
-                    
-                    if os.path.exists(video_path):
-                        # Update status to done
-                        status_info["status"] = "done"
-                        status_info["download_url"] = f"/videos/{job_id}/file"
-                        r.set(job_key, json.dumps(status_info))
-                        logger.info(f"Updated job {job_id} status to 'done' (file detected)")
-                    elif status_info.get("status") == "queued":
+                    # Only update status from queued to rendering if it's been queued for a while
+                    # The video-creator will handle updating to "done" status directly
+                    if status_info.get("status") == "queued":
                         # Check if it's been queued for a while, assume rendering
                         # This is a simple heuristic - in production you'd want better tracking
                         status_info["status"] = "rendering" 
-                        status_info["progress"] = 0.5
+                        status_info["progress"] = 0.3
                         r.set(job_key, json.dumps(status_info))
                         logger.info(f"Updated job {job_id} status to 'rendering'")
                         
@@ -303,7 +296,7 @@ def get_video_status(job_id: str):
         logger.error(f"Invalid JSON data for job {job_id}")
         raise HTTPException(status_code=500, detail="Internal server error")
     except Exception as e:
-        logger.error(f"Error getting status for job {job_id}: {e}")
+        logger.error(f"Error getting status for job {job_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/videos/{job_id}/file", tags=["Videos"])
@@ -319,7 +312,11 @@ def download_video(job_id: str):
         status_info = json.loads(data)
         
         if status_info.get("status") != "done":
-            raise HTTPException(status_code=404, detail="Video not ready")
+            status = status_info.get("status", "unknown")
+            if status == "error":
+                raise HTTPException(status_code=404, detail=f"Video generation failed: {status_info.get('error_msg', 'Unknown error')}")
+            else:
+                raise HTTPException(status_code=404, detail=f"Video not ready (status: {status})")
         
         # Check if file exists locally
         video_path = os.path.join(VIDEO_OUT_DIR, f"{job_id}.mp4")
@@ -327,6 +324,14 @@ def download_video(job_id: str):
         if not os.path.exists(video_path):
             logger.error(f"Video file not found: {video_path}")
             raise HTTPException(status_code=404, detail="Video file not found")
+        
+        # Verify file size to ensure it's not corrupted
+        file_size = os.path.getsize(video_path)
+        if file_size < 1000:  # Less than 1KB is probably corrupted
+            logger.error(f"Video file appears corrupted (size: {file_size}): {video_path}")
+            raise HTTPException(status_code=404, detail="Video file appears corrupted")
+        
+        logger.info(f"Serving video file: {video_path} (size: {file_size} bytes)")
         
         # Serve the file directly
         return FileResponse(
@@ -376,11 +381,25 @@ def health_check():
     
     return health_status
 
-if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8080,
-        reload=True,
-        log_level="info"
-    )
+@app.get("/video-count", tags=["Statistics"])
+def get_video_count():
+    """Get the current video generation count."""
+    try:
+        r = get_redis()
+        count = r.get("video_generation_count")
+        return {"count": int(count) if count else 0}
+    except Exception as e:
+        logger.error(f"Error getting video count: {e}")
+        return {"count": 0}
+
+@app.post("/video-count/increment", tags=["Statistics"])
+def increment_video_count():
+    """Increment the video generation count."""
+    try:
+        r = get_redis()
+        new_count = r.incr("video_generation_count")
+        logger.info(f"Video count incremented to {new_count}")
+        return {"count": new_count}
+    except Exception as e:
+        logger.error(f"Error incrementing video count: {e}")
+        raise HTTPException(status_code=500, detail="Failed to increment video count")

@@ -2,6 +2,7 @@ pika
 pydantic>=2
 python-dotenv
 requests
+redis
 moviepy==1.0.3
 imageio-ffmpeg
 Pillow==9.5.0
