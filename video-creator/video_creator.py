@@ -366,7 +366,7 @@ def render_video(job: DialogJob) -> str:
             )
             visuals.append(sprite)
             
-            print(f"🎭 Added {turn.speaker} static sprite: start={t_cursor:.1f}s, duration={raw.duration:.1f}s")
+            print(f"🐰 Added {turn.speaker} static sprite: start={t_cursor:.1f}s, duration={raw.duration:.1f}s")
 
             # captions
             caps = build_caption_layers(turn.text, wts, t_cursor)
@@ -377,8 +377,7 @@ def render_video(job: DialogJob) -> str:
         if not audio_parts:
             raise ValueError("No audio to render")
 
-        total = t_cursor
-        # randomize background start
+        total = t_cursor        # randomize background start
         mstart = max(0, bg.duration - total - 5)
         rs = 0 if mstart <= 0 else random.uniform(0, mstart)
         bg = (
@@ -397,7 +396,24 @@ def render_video(job: DialogJob) -> str:
         video = CompositeVideoClip([bg] + visuals).set_audio(final_audio)
         os.makedirs(VIDEO_OUT_DIR, exist_ok=True)
         out = os.path.join(VIDEO_OUT_DIR, f"{job.job_id}.mp4")
-        video.write_videofile(out, fps=fps, codec="libx264", audio_codec="aac")
+        
+        # Use better codec settings for compatibility
+        video.write_videofile(
+            out, 
+            fps=fps, 
+            codec="libx264",
+            audio_codec="aac",
+            temp_audiofile="temp-audio.m4a",
+            remove_temp=True,
+            preset="medium",
+            ffmpeg_params=[
+                "-movflags", "+faststart",  # Enable fast start for web streaming
+                "-pix_fmt", "yuv420p",      # Ensure compatibility with all players
+                "-crf", "23",               # Good quality balance
+                "-maxrate", "5M",           # Limit bitrate for file size
+                "-bufsize", "10M"           # Buffer size
+            ]
+        )
 
         # cleanup
         video.close(); bg.close()
@@ -408,7 +424,7 @@ def render_video(job: DialogJob) -> str:
 def on_message(ch, method, props, body):
     job = DialogJob.model_validate_json(body)
     try:
-        print(f"🎬 Rendering video for {job.job_id}…")
+        print(f"🐰 Rendering video for {job.job_id}…")
         path = render_video(job)
         msg  = RenderJob(job_id=job.job_id,
                          title=job.title,
@@ -427,13 +443,33 @@ def on_message(ch, method, props, body):
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 def main():
-    conn = pika.BlockingConnection(pika.URLParameters(RABBIT_URL))
-    ch   = conn.channel()
-    ch.queue_declare(queue=VIDEO_QUEUE, durable=True)
-    ch.basic_qos(prefetch_count=1)
-    ch.basic_consume(queue=VIDEO_QUEUE, on_message_callback=on_message)
-    print("🚀 Video Creator waiting for scripts…")
-    ch.start_consuming()
+    while True:
+        try:
+            # Create connection with better parameters
+            connection_params = pika.URLParameters(RABBIT_URL)
+            connection_params.heartbeat = 30  # 30 second heartbeat
+            connection_params.blocked_connection_timeout = 300  # 5 minute timeout
+            connection_params.connection_attempts = 3
+            connection_params.retry_delay = 2
+            
+            conn = pika.BlockingConnection(connection_params)
+            ch = conn.channel()
+            ch.queue_declare(queue=VIDEO_QUEUE, durable=True)
+            ch.basic_qos(prefetch_count=1)
+            ch.basic_consume(queue=VIDEO_QUEUE, on_message_callback=on_message)
+            print("🚀 Video Creator waiting for scripts…")
+            ch.start_consuming()
+        except KeyboardInterrupt:
+            print("🛑 Video Creator shutting down...")
+            if 'ch' in locals():
+                ch.stop_consuming()
+            if 'conn' in locals():
+                conn.close()
+            break
+        except Exception as e:
+            print(f"⚠️ Connection error: {e}. Reconnecting in 5 seconds...")
+            import time
+            time.sleep(5)
 
 if __name__ == "__main__":
     main()

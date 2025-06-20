@@ -29,7 +29,7 @@ def make_script(prompt_text: str) -> str:
         messages=[
             { "role": "system",
               "content": (
-                  "You are a social-media-savvy CS educator creating ultra-concise YouTube Shorts scripts. "
+                  "You are a social-media-savvy educator creating ultra-concise YouTube Shorts scripts. "
                   "Each script must be around 30-40 seconds long, and follow a structure like:\n"
                   "1. Hook\n"
                   "2. Core Explanation (Go from basic to deep into at least one cool area of the topic and leave the beginner viewers feeling like a topic expert)\n"
@@ -144,14 +144,34 @@ def on_message(ch, method, props, body):
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 def main():
-    conn = pika.BlockingConnection(pika.URLParameters(RABBIT_URL))
-    ch   = conn.channel()
-    ch.queue_declare(queue=SCRIPTS_QUEUE, durable=True)
-    ch.queue_declare(queue=VIDEO_QUEUE,   durable=True)
-    ch.basic_qos(prefetch_count=1)
-    ch.basic_consume(queue=SCRIPTS_QUEUE, on_message_callback=on_message)
-    print("Waiting for prompts…")
-    ch.start_consuming()
+    while True:
+        try:
+            # Create connection with better parameters
+            connection_params = pika.URLParameters(RABBIT_URL)
+            connection_params.heartbeat = 30  # 30 second heartbeat
+            connection_params.blocked_connection_timeout = 300  # 5 minute timeout
+            connection_params.connection_attempts = 3
+            connection_params.retry_delay = 2
+            
+            conn = pika.BlockingConnection(connection_params)
+            ch = conn.channel()
+            ch.queue_declare(queue=SCRIPTS_QUEUE, durable=True)
+            ch.queue_declare(queue=VIDEO_QUEUE, durable=True)
+            ch.basic_qos(prefetch_count=1)
+            ch.basic_consume(queue=SCRIPTS_QUEUE, on_message_callback=on_message)
+            print("🚀 Script Generator waiting for prompts…")
+            ch.start_consuming()
+        except KeyboardInterrupt:
+            print("🛑 Script Generator shutting down...")
+            if 'ch' in locals():
+                ch.stop_consuming()
+            if 'conn' in locals():
+                conn.close()
+            break
+        except Exception as e:
+            print(f"⚠️ Connection error: {e}. Reconnecting in 5 seconds...")
+            import time
+            time.sleep(5)
 
 if __name__ == "__main__":
     main()

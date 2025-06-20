@@ -28,8 +28,6 @@ logger = logging.getLogger(__name__)
 
 # Global variables for connections
 redis_client = None
-rabbit_connection = None
-rabbit_channel = None  # Type as object since pika types are not exposed
 status_consumer_task = None
 
 def get_redis():
@@ -40,55 +38,30 @@ def get_redis():
     return redis_client
 
 def get_rabbit_channel():
-    """Get RabbitMQ channel for publishing with retry logic."""
-    global rabbit_connection, rabbit_channel
-    
-    # Always test the connection and channel before using
-    connection_is_valid = (
-        rabbit_connection is not None and 
-        not rabbit_connection.is_closed
-    )
-    
-    channel_is_valid = (
-        rabbit_channel is not None and 
-        not rabbit_channel.is_closed
-    )
-    
-    # If either connection or channel is invalid, recreate both
-    if not connection_is_valid or not channel_is_valid:
-        # Clean up existing connections
-        if rabbit_channel and not rabbit_channel.is_closed:
-            try:
-                rabbit_channel.close()
-            except:
-                pass
-                
-        if rabbit_connection and not rabbit_connection.is_closed:
-            try:
-                rabbit_connection.close()
-            except:
-                pass
+    """Get RabbitMQ channel for publishing - create fresh connection each time."""
+    try:
+        logger.info("Creating fresh RabbitMQ connection")
         
-        rabbit_connection = None
-        rabbit_channel = None
+        # Create fresh connection with more conservative heartbeat settings
+        connection_params = pika.URLParameters(RABBIT_URL)
+        connection_params.heartbeat = 0  # Disable heartbeat to avoid timeout issues
+        connection_params.blocked_connection_timeout = 30  # 30 second timeout
+        connection_params.connection_attempts = 5
+        connection_params.retry_delay = 1
+        connection_params.socket_timeout = 10  # 10 second socket timeout
         
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"Attempting to connect to RabbitMQ (attempt {attempt + 1})")
-                rabbit_connection = pika.BlockingConnection(pika.URLParameters(RABBIT_URL))
-                rabbit_channel = rabbit_connection.channel()
-                rabbit_channel.queue_declare(queue=SCRIPTS_QUEUE, durable=True)
-                logger.info("RabbitMQ connection established successfully")
-                break
-            except Exception as e:
-                logger.error(f"RabbitMQ connection attempt {attempt + 1} failed: {e}")
-                if attempt == max_retries - 1:
-                    raise
-                import time
-                time.sleep(2 ** attempt)  # Exponential backoff
-    
-    return rabbit_channel
+        connection = pika.BlockingConnection(connection_params)
+        channel = connection.channel()
+        
+        # Declare the queue as durable
+        channel.queue_declare(queue=SCRIPTS_QUEUE, durable=True)
+        
+        logger.info("Fresh RabbitMQ connection established successfully")
+        return connection, channel
+        
+    except Exception as e:
+        logger.error(f"Failed to create RabbitMQ connection: {e}")
+        raise
 
 async def status_consumer():
     """Background task to consume status updates from RabbitMQ."""
@@ -202,13 +175,6 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
     
-    if rabbit_connection and not rabbit_connection.is_closed:
-        try:
-            rabbit_connection.close()
-            logger.info("RabbitMQ connection closed")
-        except:
-            pass
-    
     if redis_client:
         try:
             redis_client.close()
@@ -242,8 +208,7 @@ def list_themes():
 def submit_video(job: PromptJob):
     """Submit a new prompt for video generation."""
     logger.info(f"Received job submission: {job.job_id} with theme '{job.character_theme}' and prompt: '{job.prompt[:50]}...'")
-    
-    # Validate theme
+      # Validate theme
     if job.character_theme not in AVAILABLE_THEMES:
         logger.error(f"Invalid theme '{job.character_theme}' for job {job.job_id}")
         raise HTTPException(
@@ -261,17 +226,15 @@ def submit_video(job: PromptJob):
         }
         r.set(job.job_id, json.dumps(status_data))
         logger.info(f"Successfully stored initial status for job {job.job_id}")
-        
-        # Publish to RabbitMQ with retry logic
+          # Publish to RabbitMQ with retry logic
         logger.info(f"Starting RabbitMQ publish for job {job.job_id}")
         max_retries = 3
         for attempt in range(max_retries):
+            connection = None
+            channel = None
             try:
-                channel = get_rabbit_channel()
-                # Test channel before using it
-                if channel is None or channel.is_closed:
-                    raise Exception("Channel is closed or None")
-                    
+                connection, channel = get_rabbit_channel()
+                
                 channel.basic_publish(
                     exchange="",
                     routing_key=SCRIPTS_QUEUE,
@@ -279,30 +242,35 @@ def submit_video(job: PromptJob):
                     properties=pika.BasicProperties(delivery_mode=2)  # Make message persistent
                 )
                 logger.info(f"Job {job.job_id} queued successfully")
-                break
+                
+                # Close connection immediately after use
+                channel.close()
+                connection.close()
+                break  # Success, exit retry loop
+                
             except Exception as e:
                 logger.error(f"RabbitMQ publish attempt {attempt + 1} failed: {e}")
                 
-                # Reset connection for retry
-                global rabbit_connection, rabbit_channel
-                if rabbit_connection and not rabbit_connection.is_closed:
+                # Clean up connections on error
+                if channel:
                     try:
-                        rabbit_connection.close()
+                        channel.close()
                     except:
                         pass
-                if rabbit_channel and not rabbit_channel.is_closed:
+                if connection:
                     try:
-                        rabbit_channel.close()
+                        connection.close()
                     except:
                         pass
-                rabbit_connection = None
-                rabbit_channel = None
                 
                 if attempt == max_retries - 1:
                     # Update status to error in Redis
-                    status_data["status"] = "error"
-                    status_data["error_msg"] = f"Failed to queue job after {max_retries} retries: {str(e)}"
-                    r.set(job.job_id, json.dumps(status_data))
+                    error_status = {
+                        "job_id": job.job_id,
+                        "status": "error",
+                        "error_msg": f"Failed to queue job after {max_retries} retries: {str(e)}"
+                    }
+                    r.set(job.job_id, json.dumps(error_status))
                     logger.error(f"Final failure for job {job.job_id}: {e}")
                     raise HTTPException(status_code=500, detail="Failed to queue job after retries")
                 
@@ -389,12 +357,19 @@ def health_check():
     
     try:
         # Check RabbitMQ connection
-        channel = get_rabbit_channel()
+        connection, channel = get_rabbit_channel()
         if channel and not channel.is_closed:
             health_status["rabbitmq"] = "ok"
         else:
             health_status["rabbitmq"] = "channel closed"
             health_status["status"] = "unhealthy"
+        
+        # Clean up test connection
+        if channel:
+            channel.close()
+        if connection:
+            connection.close()
+            
     except Exception as e:
         health_status["rabbitmq"] = f"error: {str(e)}"
         health_status["status"] = "unhealthy"

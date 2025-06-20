@@ -70,13 +70,12 @@ services:
     volumes:
       - videos-data:/app/data/videos
     restart: on-failure
-
   web:
     build:
       context: .
       dockerfile: web/Dockerfile
     ports:
-      - "3001:80"
+      - "5000:80"
     environment:
       - NEXT_PUBLIC_API_BASE=http://localhost:8080
     depends_on:
