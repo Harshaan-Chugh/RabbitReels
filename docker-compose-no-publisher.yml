@@ -51,20 +51,7 @@ services:
     volumes:
       - videos-data:/app/data/videos
     restart: on-failure
-  publisher:
-    build:
-      context: .
-      dockerfile: publisher/Dockerfile
-    env_file: .env
-    environment:
-      PYTHONUNBUFFERED: "1"
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-    volumes:
-      - videos-data:/app/data/videos
-      - ./publisher:/app/publisher
-    restart: on-failure
+
   api:
     build:
       context: .

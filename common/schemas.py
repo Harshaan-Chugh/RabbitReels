@@ -32,3 +32,11 @@ class DialogJob(BaseModel):
     title: str
     character_theme: str  # Pass theme along to the video creator
     turns: list[Turn]
+
+class VideoStatus(BaseModel):
+    job_id: str
+    status: Literal["queued", "rendering", "done", "error"]
+    progress: Optional[float] = None  # 0.0 to 1.0
+    error_msg: Optional[str] = None
+    download_url: Optional[str] = None
+    youtube_url: Optional[str] = None
