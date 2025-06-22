@@ -9,9 +9,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy API code
 COPY api/main.py .
 COPY api/config.py .
+COPY api/auth.py .
 
 # Copy shared code
 COPY common ./common
+
+RUN mkdir -p /app/static
 
 # Expose port
 EXPOSE 8080

@@ -17,7 +17,7 @@ PUBLISH_QUEUE = os.getenv("PUBLISH_QUEUE", "publish-queue")
 ENABLE_PUBLISHER = os.getenv("ENABLE_PUBLISHER", "false").lower() == "true"
 
 # Where to write out MP4s
-VIDEO_OUT_DIR = os.getenv("VIDEO_OUT_DIR", "../data/videos")
+VIDEO_OUT_DIR = os.getenv("VIDEO_OUT_DIR", "./data/videos")
 
 # ElevenLabs TTS credentials (Peter voice)
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
@@ -27,6 +27,11 @@ STEWIE_VOICE_ID = os.getenv("STEWIE_VOICE_ID", "u58sF2rOukCb342nzwpN")
 # NEW: Add voice IDs for new characters
 RICK_VOICE_ID = os.getenv("RICK_VOICE_ID")
 MORTY_VOICE_ID = os.getenv("MORTY_VOICE_ID")
+
+# TTS API Retry Configuration
+TTS_MAX_RETRIES = int(os.getenv("TTS_MAX_RETRIES", "3"))
+TTS_RETRY_DELAY = int(os.getenv("TTS_RETRY_DELAY", "2"))
+TTS_BACKOFF_MULTIPLIER = int(os.getenv("TTS_BACKOFF_MULTIPLIER", "2"))
 
 # Redis settings for status updates
 REDIS_URL = os.getenv("REDIS_URL")

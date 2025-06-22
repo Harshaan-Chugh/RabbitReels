@@ -15,7 +15,7 @@ VIDEO_QUEUE = os.getenv("VIDEO_QUEUE", "video-queue")
 PUBLISH_QUEUE = os.getenv("PUBLISH_QUEUE", "publish-queue")
 
 # Redis settings for job status tracking
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
 # Video storage directory
 VIDEO_OUT_DIR = os.getenv("VIDEO_OUT_DIR", "../data/videos")
@@ -30,3 +30,16 @@ AVAILABLE_THEMES = [
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8080"))
 API_RELOAD = os.getenv("API_RELOAD", "true").lower() == "true"
+
+# OAuth settings
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_AUTH_REDIRECT = os.getenv("GOOGLE_AUTH_REDIRECT", "http://localhost:8080/auth/callback")
+
+# JWT settings
+JWT_SECRET = os.getenv("JWT_SECRET", "super-secret-change-me")
+JWT_ALG = "HS256"
+JWT_EXPIRES_SEC = 7 * 24 * 3600  # one week
+
+# Frontend URL
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5000")

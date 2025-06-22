@@ -7,6 +7,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import Navbar from "@/components/Navbar";
 import { useVideoCounter } from "@/contexts/VideoCounterContext";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { v4 as uuid } from "uuid";
 
 type Status =
@@ -19,7 +20,9 @@ export default function Generator() {
   const [theme, setTheme] = useState<"family_guy" | "rick_and_morty">("family_guy");
   const [prompt, setPrompt] = useState("");
   const [status, setStatus] = useState<Status>({ stage: "idle" });
-  const { darkMode, toggleDarkMode } = useTheme();  const { incrementVideoCount } = useVideoCounter();
+  const { darkMode, toggleDarkMode } = useTheme();
+  const { authenticatedFetch, isAuthenticated, login } = useAuth();
+  const { incrementVideoCount } = useVideoCounter();
   // Polling hook -------------------------------------------------------
   useEffect(() => {
     if (status.stage !== "queued" && status.stage !== "rendering") return;
@@ -45,17 +48,22 @@ export default function Generator() {
       }
     }, 5000);
     return () => clearInterval(t);
-  }, [status, incrementVideoCount]);
-  // Submit -------------------------------------------------------------
+  }, [status, incrementVideoCount]);  // Submit -------------------------------------------------------------
   const handleCreate = async () => {
     if (!prompt.trim()) return alert("Enter a prompt!");
+    
+    if (!isAuthenticated) {
+      alert("Please log in to create videos!");
+      login();
+      return;
+    }
+    
     const jobId = uuid();
     const body = { job_id: jobId, prompt, character_theme: theme };
     
     try {
-      const r = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/videos`, {
+      const r = await authenticatedFetch(`${process.env.NEXT_PUBLIC_API_BASE}/videos`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (!r.ok) {

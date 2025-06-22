@@ -2,17 +2,24 @@ import os
 import json
 import asyncio
 import logging
+import time
+import sys
 from typing import Optional
 from contextlib import asynccontextmanager
 
+# Allow imports from the repo root
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import redis
 import pika
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.responses import RedirectResponse, FileResponse
+from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 import uvicorn
 
-from common.schemas import PromptJob, RenderJob, VideoStatus
+from common.schemas import PromptJob, VideoStatus
 from config import (
     RABBIT_URL,
     SCRIPTS_QUEUE,
@@ -21,6 +28,7 @@ from config import (
     REDIS_URL,
     AVAILABLE_THEMES
 )
+from auth import router as auth_router, get_current_user
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -192,16 +200,63 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add session middleware for OAuth
+app.add_middleware(
+    SessionMiddleware,
+    secret_key="your-session-secret-key-change-this-in-production"
+)
+
+# Include auth router
+app.include_router(auth_router)
+
+# Mount static files for the login page
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+# Redirect root to login page
+@app.get("/")
+def root():
+    """Serve the login page"""
+    return RedirectResponse(url="/static/login.html")
+
+@app.get("/test-login")
+def test_login():
+    """Test endpoint to serve login page directly"""
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "static", "login.html"), "r") as f:
+            content = f.read()
+        return HTMLResponse(content=content)
+    except Exception as e:
+        logger.error(f"Error serving login page: {e}")
+        return {"error": "Failed to load login page", "message": str(e)}
+
+# Success page redirect  
+@app.get("/login/success")
+async def login_success(request: Request):
+    logger.info("LOGIN SUCCESS ROUTE CALLED - redirecting to /static/success.html")
+    # Extract token from query parameters and pass it along
+    token = request.query_params.get('token')
+    if token:
+        return RedirectResponse(url=f"/static/success.html?token={token}")
+    else:
+        return RedirectResponse(url="/static/success.html")
+
 @app.get("/themes", tags=["Themes"])
 def list_themes():
     """List available character themes."""
     return AVAILABLE_THEMES
 
 @app.post("/videos", status_code=202, response_model=VideoStatus, tags=["Videos"])
-def submit_video(job: PromptJob):
-    """Submit a new prompt for video generation."""
-    logger.info(f"Received job submission: {job.job_id} with theme '{job.character_theme}' and prompt: '{job.prompt[:50]}...'")
-      # Validate theme
+def submit_video(job: PromptJob, current_user: dict = Depends(get_current_user)):
+    """Submit a new prompt for video generation. Requires authentication."""
+    logger.info(f"Received job submission from user {current_user.get('email', 'unknown')}: {job.job_id} with theme '{job.character_theme}' and prompt: '{job.prompt[:50]}...'")
+    
+    # Add user information to the job data for potential future use
+    job_data = job.model_dump()
+    job_data["user_email"] = current_user.get("email")
+    job_data["user_sub"] = current_user.get("sub")
+    
+    # Validate theme
     if job.character_theme not in AVAILABLE_THEMES:
         logger.error(f"Invalid theme '{job.character_theme}' for job {job.job_id}")
         raise HTTPException(
@@ -209,13 +264,15 @@ def submit_video(job: PromptJob):
             detail=f"Invalid theme '{job.character_theme}'. Available themes: {AVAILABLE_THEMES}"
         )
     
-    try:
-        # Store initial status in Redis
+    try:        # Store initial status in Redis
         logger.info(f"Storing initial status in Redis for job {job.job_id}")
         r = get_redis()
         status_data = {
             "job_id": job.job_id,
-            "status": "queued"
+            "status": "queued",
+            "user_email": current_user.get("email"),
+            "user_sub": current_user.get("sub"),
+            "submitted_at": int(time.time())
         }
         r.set(job.job_id, json.dumps(status_data))
         logger.info(f"Successfully stored initial status for job {job.job_id}")
@@ -243,8 +300,7 @@ def submit_video(job: PromptJob):
                 
             except Exception as e:
                 logger.error(f"RabbitMQ publish attempt {attempt + 1} failed: {e}")
-                
-                # Clean up connections on error
+                  # Clean up connections on error
                 if channel:
                     try:
                         channel.close()
@@ -267,7 +323,6 @@ def submit_video(job: PromptJob):
                     logger.error(f"Final failure for job {job.job_id}: {e}")
                     raise HTTPException(status_code=500, detail="Failed to queue job after retries")
                 
-                import time
                 time.sleep(1)  # Brief pause before retry
         
         logger.info(f"Returning success response for job {job.job_id}")
@@ -403,3 +458,7 @@ def increment_video_count():
     except Exception as e:
         logger.error(f"Error incrementing video count: {e}")
         raise HTTPException(status_code=500, detail="Failed to increment video count")
+
+if __name__ == "__main__":
+    from config import API_HOST, API_PORT, API_RELOAD
+    uvicorn.run(app, host=API_HOST, port=API_PORT, reload=API_RELOAD)

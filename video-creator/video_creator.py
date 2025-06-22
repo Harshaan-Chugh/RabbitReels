@@ -1,9 +1,11 @@
 # 3rd-party
-import os, glob, json, tempfile, base64, re, random
+import os, glob, json, tempfile, base64, re, random, time, traceback
 import requests, numpy as np            # type: ignore
 import pika                             # type: ignore
 import redis                            # type: ignore
 from typing import List, Dict, Tuple
+from requests.exceptions import ConnectionError, Timeout, HTTPError
+import socket
 from moviepy.editor import (            # type: ignore
     VideoFileClip,
     AudioFileClip,
@@ -28,6 +30,9 @@ from config import (
     AUDIO_ASSETS_DIR,
     REDIS_URL,
     ENABLE_PUBLISHER,
+    TTS_MAX_RETRIES,
+    TTS_RETRY_DELAY,
+    TTS_BACKOFF_MULTIPLIER,
 )
 
 # ElevenLabs API headers
@@ -45,6 +50,57 @@ CHARACTER_ASSETS = {
 }
 CHAR_HEIGHT = 650
 
+# ── TTS API Retry Configuration ────────────────────────────────────────────────
+# Use imported config values
+
+def tts_api_call_with_retry(url: str, payload: dict, headers: dict, max_retries: int = TTS_MAX_RETRIES) -> requests.Response:
+    """
+    Make a TTS API call with retry logic for handling transient network errors.
+    Retries on connection errors, timeouts, socket errors (including ConnectionResetError), and 5xx server errors.
+    """
+    last_exception = None
+    
+    for attempt in range(max_retries + 1):
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            response.raise_for_status()
+            return response
+        except (ConnectionError, Timeout, socket.error, OSError) as e:
+            # Network-level errors including ConnectionResetError - retry
+            last_exception = e
+            if attempt < max_retries:
+                delay = TTS_RETRY_DELAY * (TTS_BACKOFF_MULTIPLIER ** attempt)
+                print(f"TTS API network error (attempt {attempt + 1}/{max_retries + 1}): {type(e).__name__}: {e}")
+                print(f"Retrying in {delay} seconds...")
+                time.sleep(delay)
+            else:
+                print(f"TTS API network error after {max_retries + 1} attempts: {type(e).__name__}: {e}")
+        except HTTPError as e:
+            # HTTP errors - only retry on 5xx server errors
+            if e.response.status_code >= 500:
+                last_exception = e
+                if attempt < max_retries:
+                    delay = TTS_RETRY_DELAY * (TTS_BACKOFF_MULTIPLIER ** attempt)
+                    print(f"TTS API server error (attempt {attempt + 1}/{max_retries + 1}): HTTP {e.response.status_code}")
+                    print(f"Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                else:
+                    print(f"TTS API server error after {max_retries + 1} attempts: HTTP {e.response.status_code}")
+            else:
+                # 4xx client errors - don't retry
+                print(f"TTS API client error (not retrying): HTTP {e.response.status_code}")
+                raise
+        except Exception as e:
+            # Other unexpected errors - don't retry
+            print(f"TTS API unexpected error (not retrying): {type(e).__name__}: {e}")
+            raise
+    
+    # If we get here, all retries failed
+    if last_exception:
+        raise last_exception
+    else:
+        raise Exception("TTS API call failed after all retries")
+
 # ── caption style ────────────────────────────────────────────────────────────
 # Thick, punchy subtitles for Shorts
 FONT        = "DejaVu-Sans-Bold"   
@@ -57,20 +113,25 @@ MAX_LINE_W   = 920
 LINE_SPACING = 20                 
 
 def tts_to_file(text: str, voice_id: str, dst: str) -> None:
-    """Call ElevenLabs TTS API and save the result to a file."""
+    """Call ElevenLabs TTS API and save the result to a file with retry logic."""
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-    data = {
+    payload = {
         "text": text,
         "model_id": "eleven_monolingual_v1",
         "voice_settings": {"stability": 0.5, "similarity_boost": 0.8}
     }
-    response = requests.post(url, json=data, headers=HEADERS)
-    response.raise_for_status()
-    with open(dst, "wb") as f:
-        f.write(response.content)
+    
+    try:
+        response = tts_api_call_with_retry(url, payload, HEADERS)
+        with open(dst, "wb") as f:
+            f.write(response.content)
+    except Exception as e:
+        print(f"Failed to generate TTS for text: {text[:50]}...")
+        print(f"Error: {e}")
+        raise
 
 def tts_with_timestamps(text: str, voice_id: str, tmp_dir: str) -> tuple[str, list[dict]]:
-    """Generate TTS with word-level timestamps."""
+    """Generate TTS with word-level timestamps using retry logic."""
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps"
     payload = {
         "text": text,
@@ -82,9 +143,14 @@ def tts_with_timestamps(text: str, voice_id: str, tmp_dir: str) -> tuple[str, li
             "use_speaker_boost": True
         }
     }
-    response = requests.post(url, json=payload, headers=HEADERS)
-    response.raise_for_status()
-    result = response.json()
+    
+    try:
+        response = tts_api_call_with_retry(url, payload, HEADERS)
+        result = response.json()
+    except Exception as e:
+        print(f"Failed to generate TTS with timestamps for text: {text[:50]}...")
+        print(f"Error: {e}")
+        raise
 
     if "audio_base64" in result and "alignment" in result:
         audio_data = base64.b64decode(result["audio_base64"])
@@ -312,10 +378,34 @@ def build_caption_layers(sentence: str,
 
 def render_video(job: DialogJob) -> str:
     """Render a dialog job into an MP4 file."""
+    # Initialize Redis for progress updates
+    try:
+        r = redis.from_url(REDIS_URL, decode_responses=True)
+    except Exception as e:
+        print(f"Warning: Redis connection failed, continuing without progress updates: {e}")
+        r = None
+    
+    def update_progress(progress: float, stage: str = ""):
+        """Update rendering progress in Redis"""
+        if r:
+            try:
+                status_data = {
+                    "job_id": job.job_id,
+                    "status": "rendering",
+                    "progress": progress,
+                    "stage": stage
+                }
+                r.set(job.job_id, json.dumps(status_data))
+                print(f"Progress: {progress:.1%} - {stage}")
+            except Exception as e:
+                print(f"Warning: Failed to update progress: {e}")
+    
     # Get the asset map for the current theme
     asset_map = CHARACTER_ASSETS.get(job.character_theme)
     if not asset_map:
         raise ValueError(f"No assets found for theme: {job.character_theme}")
+
+    update_progress(0.15, "Initializing video rendering")
 
     with tempfile.TemporaryDirectory() as tmp:
         bg       = VideoFileClip(LONG_BG_VIDEO)
@@ -324,7 +414,10 @@ def render_video(job: DialogJob) -> str:
         audio_parts = []
         visuals     = []
 
-        for turn in job.turns:
+        total_turns = len(job.turns)
+        update_progress(0.2, f"Processing {total_turns} dialog turns")
+
+        for i, turn in enumerate(job.turns):
             # Make speaker lookup case-insensitive
             speaker_assets = None
             for key, assets in asset_map.items():
@@ -334,15 +427,27 @@ def render_video(job: DialogJob) -> str:
             
             if not speaker_assets:
                 available_speakers = list(asset_map.keys())
-                raise ValueError(f"Assets for speaker '{turn.speaker}' not found in theme '{job.character_theme}'. Available speakers: {available_speakers}")            # TTS + timestamps (with fallback)
+                raise ValueError(f"Assets for speaker '{turn.speaker}' not found in theme '{job.character_theme}'. Available speakers: {available_speakers}")
+            
+            # Progress for this turn (20% to 70% for all TTS processing)
+            turn_progress = 0.2 + (i / total_turns) * 0.5
+            update_progress(turn_progress, f"Generating speech for {turn.speaker} (turn {i+1}/{total_turns})")
+            
+            # TTS + timestamps (with fallback and better error handling)
             try:
                 # Use voice_id from the new asset map
                 wav, wts = tts_with_timestamps(turn.text, speaker_assets["voice_id"], tmp)
-            except requests.exceptions.HTTPError:
+            except requests.exceptions.HTTPError as e:
+                print(f"TTS with timestamps failed for {turn.speaker}, falling back to basic TTS: {e}")
                 wav = os.path.join(tmp, f"{hash(turn.text)}.wav")
-                tts_to_file(turn.text, speaker_assets["voice_id"], wav)
-                dur = AudioFileClip(wav).duration
-                wts = [{"word": turn.text, "start": 0.0, "end": dur}]
+                try:
+                    tts_to_file(turn.text, speaker_assets["voice_id"], wav)
+                    dur = AudioFileClip(wav).duration
+                    wts = [{"word": turn.text, "start": 0.0, "end": dur}]
+                except Exception as tts_e:
+                    raise Exception(f"TTS generation failed for {turn.speaker}: {tts_e}") from tts_e
+            except Exception as e:
+                raise Exception(f"TTS processing failed for {turn.speaker}: {e}") from e
 
             raw = AudioFileClip(wav)
             if raw.nchannels == 1:
@@ -380,7 +485,8 @@ def render_video(job: DialogJob) -> str:
         if not audio_parts:
             raise ValueError("No audio to render")
 
-        total = t_cursor        # randomize background start
+        update_progress(0.75, "Compositing video and audio")
+        total = t_cursor# randomize background start
         mstart = max(0, bg.duration - total - 5)
         rs = 0 if mstart <= 0 else random.uniform(0, mstart)
         bg = (
@@ -426,6 +532,9 @@ def render_video(job: DialogJob) -> str:
 
 def on_message(ch, method, props, body):
     job = DialogJob.model_validate_json(body)
+    video_generation_successful = False
+    video_path = None
+    
     try:
         print(f"🐰 Rendering video for {job.job_id}…")
         
@@ -442,79 +551,75 @@ def on_message(ch, method, props, body):
         except Exception as e:
             print(f"Warning: Failed to update Redis status to rendering: {e}")
         
-        path = render_video(job)
-          # Update status to done in Redis with proper verification
+        # Core video generation - this is the critical part
+        video_path = render_video(job)
+        
+        # Verify video was created successfully
+        if not os.path.exists(video_path) or os.path.getsize(video_path) < 1000:
+            raise Exception("Video file not created properly or is too small")
+        
+        # Update Redis status to done - this marks successful completion
         try:
             r = redis.from_url(REDIS_URL, decode_responses=True)
-            
-            # Verify file exists and has reasonable size
-            if os.path.exists(path) and os.path.getsize(path) > 1000:  # At least 1KB
-                status_data = {
-                    "job_id": job.job_id,
-                    "status": "done",
-                    "download_url": f"/videos/{job.job_id}/file"
-                }
-                r.set(job.job_id, json.dumps(status_data))
-                print(f"Updated Redis status to 'done' for {job.job_id}")
-            else:
-                raise Exception("Video file not created properly")
+            status_data = {
+                "job_id": job.job_id,
+                "status": "done",
+                "download_url": f"/videos/{job.job_id}/file"
+            }
+            r.set(job.job_id, json.dumps(status_data))
+            print(f"Updated Redis status to 'done' for {job.job_id}")
         except Exception as e:
             print(f"Error updating Redis status to done: {e}")
-            # Update to error status
-            try:
-                error_status = {
-                    "job_id": job.job_id,
-                    "status": "error",
-                    "error_msg": f"Video creation failed: {str(e)}"
-                }
-                r.set(job.job_id, json.dumps(error_status))
-            except:
-                pass
-            raise
+            raise Exception(f"Video created but failed to update status: {str(e)}")
         
-        msg  = RenderJob(job_id=job.job_id,
-                         title=job.title,
-                         storage_path=path).model_dump_json()
+        # Mark video generation as successful BEFORE any publisher/queue operations
+        video_generation_successful = True
+        print(f"✅ Video successfully created: {video_path}")
         
-        # Only publish to publisher queue if publisher is enabled
-        if ENABLE_PUBLISHER:
-            try:
-                conn = pika.BlockingConnection(pika.URLParameters(RABBIT_URL))
-                chan = conn.channel()
-                chan.queue_declare(queue=PUBLISH_QUEUE, durable=True)
-                chan.basic_publish(exchange="", routing_key=PUBLISH_QUEUE,
-                                  body=msg,
-                                  properties=pika.BasicProperties(delivery_mode=2))
-                conn.close()
-                print(f"✅ Video published to queue: {path}")
-            except Exception as pub_e:
-                print(f"⚠️ Publisher queue failed (this is OK if publisher is disabled): {pub_e}")
-        else:
-            print(f"✅ Video ready (publisher disabled): {path}")
-            
-        ch.basic_ack(delivery_tag=method.delivery_tag)
     except Exception as e:
-        print(f"[✗] Rendering failed for {job.job_id}: {e}")
+        # Video generation failed - update Redis to error status
+        print(f"[✗] Video generation failed for {job.job_id}: {e}")
         
-        # Update Redis status to error
         try:
             r = redis.from_url(REDIS_URL, decode_responses=True)
             error_status = {
                 "job_id": job.job_id,
                 "status": "error",
-                "error_msg": f"Rendering failed: {str(e)}"
+                "error_msg": f"Video generation failed: {str(e)}"
             }
             r.set(job.job_id, json.dumps(error_status))
             print(f"Updated Redis status to 'error' for {job.job_id}")
         except Exception as redis_e:
             print(f"Warning: Failed to update Redis error status: {redis_e}")
-        
-        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+    
+    # Post-processing operations (publisher queue) - failures here don't affect video status
+    if video_generation_successful and video_path:
+        try:
+            msg = RenderJob(job_id=job.job_id,
+                           title=job.title,
+                           storage_path=video_path).model_dump_json()
+            
+            # Only publish to publisher queue if publisher is enabled
+            if ENABLE_PUBLISHER:
+                try:
+                    conn = pika.BlockingConnection(pika.URLParameters(RABBIT_URL))
+                    chan = conn.channel()
+                    chan.queue_declare(queue=PUBLISH_QUEUE, durable=True)
+                    chan.basic_publish(exchange="", routing_key=PUBLISH_QUEUE,
+                                      body=msg,
+                                      properties=pika.BasicProperties(delivery_mode=2))
+                    conn.close()
+                    print(f"✅ Video published to publisher queue: {video_path}")
+                except Exception as pub_e:
+                    print(f"⚠️ Publisher queue failed (video already completed): {pub_e}")
+            else:
+                print(f"✅ Video ready (publisher disabled): {video_path}")
+        except Exception as post_e:
+            print(f"⚠️ Post-processing failed (video already completed): {post_e}")
 
 def main():
     while True:
         try:
-            # Create connection with better parameters
             connection_params = pika.URLParameters(RABBIT_URL)
             connection_params.heartbeat = 30  # 30 second heartbeat
             connection_params.blocked_connection_timeout = 300  # 5 minute timeout
@@ -525,7 +630,7 @@ def main():
             ch = conn.channel()
             ch.queue_declare(queue=VIDEO_QUEUE, durable=True)
             ch.basic_qos(prefetch_count=1)
-            ch.basic_consume(queue=VIDEO_QUEUE, on_message_callback=on_message)
+            ch.basic_consume(queue=VIDEO_QUEUE, on_message_callback=on_message, auto_ack=True)
             print("🚀 Video Creator waiting for scripts…")
             ch.start_consuming()
         except KeyboardInterrupt:
