@@ -13,14 +13,11 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
-  const { user, profile, isAuthenticated, login, logout, loading } = useAuth();
-  const profileMenuRef = useRef<HTMLDivElement>(null);
-
-  const handleGoogleAuth = () => {
-    login();
-  };
-
-  // Close profile menu when clicking outside
+  const [formLoading, setFormLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formData, setFormData] = useState({ email: '', password: '', name: '' });
+  const { user, profile, isAuthenticated, login, logout, loading, emailLogin, emailRegister } = useAuth();
+  const profileMenuRef = useRef<HTMLDivElement>(null);  // Close profile menu when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
@@ -31,13 +28,47 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
+    };  }, []);
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleGoogleAuth = () => {
+    login();
+  };  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Implement form authentication
-    console.log("Form auth not implemented yet");
+    setFormLoading(true);
+    setFormError(null);
+
+    try {
+      let result;
+      if (isLogin) {
+        result = await emailLogin(formData.email, formData.password);
+      } else {
+        if (!formData.name.trim()) {
+          setFormError('Name is required for registration');
+          return;
+        }
+        result = await emailRegister(formData.email, formData.password, formData.name);
+      }
+
+      if (result.success) {
+        setShowAuthModal(false);
+        setFormData({ email: '', password: '', name: '' });
+        setFormError(null);
+      } else {
+        setFormError(result.error || 'Authentication failed');
+      }    } catch {
+      setFormError('An unexpected error occurred');
+    } finally {
+      setFormLoading(false);
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    // Clear error when user starts typing
+    if (formError) {
+      setFormError(null);
+    }
   };
 
   return (
@@ -124,12 +155,12 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                 )}
               </div>
             ) : (
-              /* Auth buttons for unauthenticated users */
-              <>
-                <button
+              /* Auth buttons for unauthenticated users */              <>                <button
                   onClick={() => {
                     setIsLogin(true);
                     setShowAuthModal(true);
+                    setFormData({ email: '', password: '', name: '' });
+                    setFormError(null);
                   }}
                   className={`px-4 py-2 rounded-lg transition-colors ${
                     darkMode
@@ -143,6 +174,8 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                   onClick={() => {
                     setIsLogin(false);
                     setShowAuthModal(true);
+                    setFormData({ email: '', password: '', name: '' });
+                    setFormError(null);
                   }}
                   className={`px-4 py-2 rounded-lg border transition-colors ${
                     darkMode
@@ -177,9 +210,12 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
             <div className="flex justify-between items-center mb-6">
               <h2 className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                 {isLogin ? 'Log in' : 'Sign up'}
-              </h2>
-              <button
-                onClick={() => setShowAuthModal(false)}
+              </h2>              <button
+                onClick={() => {
+                  setShowAuthModal(false);
+                  setFormData({ email: '', password: '', name: '' });
+                  setFormError(null);
+                }}
                 className={`text-2xl ${darkMode ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 ×
@@ -218,43 +254,83 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
 
             <div className={`text-center mb-4 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
               or
-            </div>
-
-            {/* Form */}
+            </div>            {/* Form */}
             <form onSubmit={handleFormSubmit} className="space-y-4">
+              {!isLogin && (
+                <input
+                  type="text"
+                  name="name"
+                  placeholder="Full Name"
+                  value={formData.name}
+                  onChange={handleInputChange}
+                  className={`w-full p-3 rounded-lg border ${
+                    darkMode
+                      ? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400'
+                      : 'border-gray-300 bg-white text-gray-900 placeholder-gray-500'
+                  } focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                  required={!isLogin}
+                  disabled={formLoading}
+                />
+              )}
               <input
                 type="email"
+                name="email"
                 placeholder="Email"
+                value={formData.email}
+                onChange={handleInputChange}
                 className={`w-full p-3 rounded-lg border ${
                   darkMode
                     ? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400'
                     : 'border-gray-300 bg-white text-gray-900 placeholder-gray-500'
                 } focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                 required
+                disabled={formLoading}
               />
               <input
                 type="password"
+                name="password"
                 placeholder="Password"
+                value={formData.password}
+                onChange={handleInputChange}
                 className={`w-full p-3 rounded-lg border ${
                   darkMode
                     ? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400'
                     : 'border-gray-300 bg-white text-gray-900 placeholder-gray-500'
                 } focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                 required
+                disabled={formLoading}
               />
+              
+              {formError && (
+                <div className="text-red-500 text-sm bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
+                  {formError}
+                </div>
+              )}
+              
               <button
                 type="submit"
-                className="w-full bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                disabled={formLoading}
+                className="w-full bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed transition-colors font-medium"
               >
-                {isLogin ? 'Log in' : 'Sign up'}
+                {formLoading ? (
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>{isLogin ? 'Logging in...' : 'Signing up...'}</span>
+                  </div>
+                ) : (
+                  isLogin ? 'Log in' : 'Sign up'
+                )}
               </button>
-            </form>
-
-            <div className={`text-center mt-4 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+            </form>            <div className={`text-center mt-4 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
               {isLogin ? "Don't have an account? " : "Already have an account? "}
               <button
-                onClick={() => setIsLogin(!isLogin)}
+                onClick={() => {
+                  setIsLogin(!isLogin);
+                  setFormData({ email: '', password: '', name: '' });
+                  setFormError(null);
+                }}
                 className="text-blue-600 hover:text-blue-700 font-medium"
+                disabled={formLoading}
               >
                 {isLogin ? 'Sign up' : 'Log in'}
               </button>

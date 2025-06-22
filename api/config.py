@@ -42,4 +42,4 @@ JWT_ALG = "HS256"
 JWT_EXPIRES_SEC = 7 * 24 * 3600  # one week
 
 # Frontend URL
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5000")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3001")

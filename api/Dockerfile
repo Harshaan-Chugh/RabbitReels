@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY api/main.py .
 COPY api/config.py .
 COPY api/auth.py .
+COPY api/user_models.py .
 
 # Copy shared code
 COPY common ./common
