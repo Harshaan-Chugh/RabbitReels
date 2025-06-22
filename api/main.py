@@ -7,7 +7,6 @@ import sys
 from typing import Optional
 from contextlib import asynccontextmanager
 
-# Allow imports from the repo root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import redis
@@ -30,11 +29,9 @@ from config import (
 )
 from auth import router as auth_router, get_current_user
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global variables for connections
 redis_client = None
 status_consumer_task = None
 

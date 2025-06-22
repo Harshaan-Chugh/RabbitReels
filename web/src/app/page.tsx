@@ -38,7 +38,14 @@ export default function Home() {
         </p>
 
         {/* Main Action Buttons */}
-        <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
+        <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4 relative">
+          {/* "Star my repo!" callout - positioned above the "Run Locally" button */}
+          <div className="absolute -top-10 right-0 sm:right-0 sm:-top-10 text-center sm:transform sm:-translate-x-1/2 sm:left-auto sm:right-[calc(50%-32px)]">
+            <span className={`text-xs font-bold ${darkMode ? 'text-blue-400' : 'text-blue-600'} bg-white dark:bg-gray-800 px-2 py-1 rounded-full shadow border whitespace-nowrap`}>
+              ⭐ Star my repo!
+            </span>
+          </div>
+
           {/* FIX: Changed from <Link> to <a> to ensure correct URL navigation */}
           <a href="/generator/">
             <button className="w-full sm:w-auto bg-gradient-to-r from-pink-500 to-purple-600 text-white font-bold py-4 px-8 rounded-full shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 text-xl">
@@ -46,7 +53,7 @@ export default function Home() {
             </button>
           </a>
           <a href="https://github.com/Harshaan-Chugh/RabbitReels" target="_blank" rel="noopener noreferrer">
-            <button className={`w-full py-4 rounded-xl font-bold text-lg border transition-colors ${
+            <button className={`w-full py-4 px-6 rounded-xl font-bold text-lg border transition-colors ${
               darkMode
                 ? 'border-gray-600 text-gray-300 hover:bg-gray-700'
                 : 'border-gray-300 text-gray-700 hover:bg-gray-50'

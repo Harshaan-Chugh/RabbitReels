@@ -20,10 +20,7 @@ from user_models import UserRegistration, UserLogin, UserResponse, TokenResponse
 router = APIRouter(prefix="/auth", tags=["Auth"])
 security = HTTPBearer()
 
-# Redis client for user storage
 rdb = redis.from_url(REDIS_URL, decode_responses=True)
-
-# Password hashing utilities
 def hash_password(password: str) -> str:
     """Hash a password using bcrypt."""
     salt = bcrypt.gensalt()
@@ -60,15 +57,11 @@ def store_user(user_data: Dict) -> str:
     user_data["id"] = user_id
     user_data["created_at"] = int(time.time())
     
-    # Store by user ID
-    rdb.set(f"user:{user_id}", json.dumps(user_data), ex=30*24*3600)  # 30 days TTL
-    
-    # Store by email for lookup
+    rdb.set(f"user:{user_id}", json.dumps(user_data), ex=30*24*3600)
     rdb.set(f"user_email:{user_data['email']}", json.dumps(user_data), ex=30*24*3600)
     
     return user_id
 
-# OAuth configuration
 oauth = OAuth()
 oauth.register(
     name="google",
@@ -78,21 +71,15 @@ oauth.register(
     client_kwargs={"scope": "openid email profile"},
 )
 
-# === EMAIL/PASSWORD AUTHENTICATION ===
-
 @router.post("/register", response_model=TokenResponse)
 async def register_user(user_data: UserRegistration):
     """Register a new user with email and password."""
-    # Check if user already exists
     existing_user = get_user_by_email(user_data.email)
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
-    # Validate password strength (basic validation)
     if len(user_data.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters long")
-    
-    # Hash password and store user
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters long")    
     hashed_password = hash_password(user_data.password)
     user_info = {
         "email": user_data.email,
@@ -104,10 +91,8 @@ async def register_user(user_data: UserRegistration):
     user_id = store_user(user_info)
     user_info["id"] = user_id
     
-    # Create JWT token
     token = create_jwt_token(user_info)
     
-    # Return token and user info
     user_response = UserResponse(
         id=user_id,
         email=user_info["email"],
@@ -121,19 +106,15 @@ async def register_user(user_data: UserRegistration):
 @router.post("/login", response_model=TokenResponse)
 async def login_user(login_data: UserLogin):
     """Login with email and password."""
-    # Get user by email
     user = get_user_by_email(login_data.email)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
-    # Verify password
     if not verify_password(login_data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
-    # Create JWT token
     token = create_jwt_token(user)
     
-    # Return token and user info
     user_response = UserResponse(
         id=user["id"],
         email=user["email"],
@@ -144,16 +125,12 @@ async def login_user(login_data: UserLogin):
     
     return TokenResponse(access_token=token, user=user_response)
 
-# === GOOGLE OAUTH AUTHENTICATION ===
-
-# 1️⃣ Entry point - redirect to Google OAuth
 @router.get("/login")
 async def login(request: Request):
     """Redirect user to Google OAuth login page."""
     redirect_uri = GOOGLE_AUTH_REDIRECT
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
-# 2️⃣ Google sends user back here with authorization code
 @router.get("/callback")
 async def auth_callback(request: Request):
     """Handle Google OAuth callback and issue JWT token."""
@@ -163,17 +140,14 @@ async def auth_callback(request: Request):
     except OAuthError as e:
         raise HTTPException(400, f"OAuth error: {e.error}")
 
-    google_sub = user["sub"]  # unique per Google account
+    google_sub = user["sub"]
     
-    # Check if user already exists by email
     existing_user = get_user_by_email(user.get("email"))
     
     if existing_user:
-        # User exists, create token
         token_str = create_jwt_token(existing_user)
         user_id = existing_user["id"]
     else:
-        # Create new user
         user_data = {
             "email": user.get("email"),
             "name": user.get("name"),
@@ -183,8 +157,8 @@ async def auth_callback(request: Request):
         }
         user_id = store_user(user_data)
         user_data["id"] = user_id
-        token_str = create_jwt_token(user_data)    # Instead of redirecting, return HTML that does the redirect
-    # This ensures we have full control over the URL
+        token_str = create_jwt_token(user_data)
+
     redirect_frontend = f"{FRONTEND_URL}/auth/callback?token={token_str}"
     print(f"DEBUG: Redirecting to: {redirect_frontend}")
     
@@ -212,7 +186,6 @@ async def auth_callback(request: Request):
     
     return HTMLResponse(content=html_content, status_code=200)
 
-# 3️⃣ JWT verification dependency
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict:
     """Extract and verify JWT token from Authorization header."""
     token = credentials.credentials
@@ -225,7 +198,6 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     except jwt.JWTError:
         raise HTTPException(401, "Token is invalid")
 
-# Optional: Get full user profile from Redis
 def get_current_user_profile(current_user: Dict = Depends(get_current_user)) -> Dict:
     """Get full user profile from Redis using the JWT subject."""
     user_id = current_user["sub"]
@@ -235,8 +207,6 @@ def get_current_user_profile(current_user: Dict = Depends(get_current_user)) -> 
         raise HTTPException(404, "User profile not found")
     
     return json.loads(user_data)
-
-# 4️⃣ Test endpoints
 @router.get("/me")
 async def get_me(user: Dict = Depends(get_current_user)):
     """Get current user's JWT claims."""
@@ -250,7 +220,6 @@ async def get_profile(profile: Dict = Depends(get_current_user_profile)):
 @router.post("/logout")
 async def logout(user: Dict = Depends(get_current_user)):
     """Logout endpoint (client should discard the JWT)."""
-    # In a more sophisticated setup, you might maintain a blacklist of JWTs
     return {"message": "Logged out successfully. Please discard your token."}
 
 class ChangePasswordRequest(BaseModel):
@@ -263,7 +232,6 @@ async def change_password(
     current_user: Dict = Depends(get_current_user)
 ):
     """Change user password (only for email auth users)."""
-    # Get full user profile
     user_id = current_user["sub"]
     user_data = rdb.get(f"user:{user_id}")
     
@@ -272,22 +240,17 @@ async def change_password(
     
     user_profile = json.loads(user_data)
     
-    # Check if user is email auth (has password)
     if user_profile.get("auth_provider") != "email":
         raise HTTPException(400, "Password change not available for OAuth users")
     
-    # Verify current password
     if not verify_password(request.current_password, user_profile["password_hash"]):
         raise HTTPException(401, "Current password is incorrect")
     
-    # Validate new password
     if len(request.new_password) < 6:
         raise HTTPException(400, "New password must be at least 6 characters long")
     
-    # Update password
     user_profile["password_hash"] = hash_password(request.new_password)
     
-    # Update in Redis
     rdb.set(f"user:{user_profile['id']}", json.dumps(user_profile), ex=30*24*3600)
     rdb.set(f"user_email:{user_profile['email']}", json.dumps(user_profile), ex=30*24*3600)
     

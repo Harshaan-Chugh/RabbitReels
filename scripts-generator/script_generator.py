@@ -1,3 +1,5 @@
+"""Script generator service for RabbitReels - creates dialog scripts from prompts."""
+
 import json
 import pika # type: ignore
 from openai import OpenAI # type: ignore
@@ -24,6 +26,7 @@ CHARACTER_CONFIG = {
 }
 
 def make_script(prompt_text: str) -> str:
+    """Generate a YouTube Shorts script from a prompt."""
     response = client.chat.completions.create(
         model="gpt-4.1-nano",
         messages=[
@@ -101,6 +104,7 @@ def make_dialog(prompt_text: str, theme: str) -> list[dict]:
 
 
 def make_title(prompt_text: str) -> str:
+    """Generate a catchy YouTube Shorts title from a prompt."""
     response = client.chat.completions.create(
         model="gpt-4.1-nano",
         messages=[
@@ -120,14 +124,13 @@ def make_title(prompt_text: str) -> str:
 def on_message(ch, method, props, body):
     job = PromptJob.model_validate_json(body)
     try:
-        # Use the theme from the job to generate the dialog
         turns  = [Turn(**t) for t in make_dialog(job.prompt, job.character_theme)]
         title = make_title(job.prompt)
         out_msg = DialogJob(
             job_id=job.job_id,
             title=title,
             turns=turns,
-            character_theme=job.character_theme # Pass theme to the next service
+            character_theme=job.character_theme
         ).model_dump_json()
 
 
@@ -146,10 +149,9 @@ def on_message(ch, method, props, body):
 def main():
     while True:
         try:
-            # Create connection with better parameters
             connection_params = pika.URLParameters(RABBIT_URL)
-            connection_params.heartbeat = 30  # 30 second heartbeat
-            connection_params.blocked_connection_timeout = 300  # 5 minute timeout
+            connection_params.heartbeat = 30
+            connection_params.blocked_connection_timeout = 300
             connection_params.connection_attempts = 3
             connection_params.retry_delay = 2
             
