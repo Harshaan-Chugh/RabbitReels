@@ -35,3 +35,15 @@ JWT_ALG = "HS256"
 JWT_EXPIRES_SEC = 7 * 24 * 3600
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3001")
+
+# Stripe configuration
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+
+# Credit prices (in cents)
+CREDIT_PRICES = {
+    1: 50,    # $0.50 for 1 credit
+    10: 450,  # $4.50 for 10 credits (10% discount)
+    50: 2000, # $20.00 for 50 credits (20% discount)
+}

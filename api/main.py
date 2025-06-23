@@ -206,6 +206,10 @@ app.add_middleware(
 # Include auth router
 app.include_router(auth_router)
 
+# Include billing router
+from billing import router as billing_router
+app.include_router(billing_router)
+
 # Mount static files for the login page
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -245,13 +249,32 @@ def list_themes():
 
 @app.post("/videos", status_code=202, response_model=VideoStatus, tags=["Videos"])
 def submit_video(job: PromptJob, current_user: dict = Depends(get_current_user)):
-    """Submit a new prompt for video generation. Requires authentication."""
+    """Submit a new prompt for video generation. Requires authentication and credits."""
     logger.info(f"Received job submission from user {current_user.get('email', 'unknown')}: {job.job_id} with theme '{job.character_theme}' and prompt: '{job.prompt[:50]}...'")
+    
+    # Check and spend credit before processing
+    from billing import spend_credit
+    user_id = str(current_user.get("id", current_user.get("sub", "")))
+    
+    if not user_id:
+        logger.error("No user ID found in current_user")
+        raise HTTPException(status_code=400, detail="Invalid user session")
+    
+    try:
+        spend_credit(user_id)
+        logger.info(f"Credit spent for user {user_id} for job {job.job_id}")
+    except HTTPException as e:
+        logger.warning(f"Credit spending failed for user {user_id}: {e.detail}")
+        raise e
+    except Exception as e:
+        logger.error(f"Unexpected error spending credit for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error processing payment")
     
     # Add user information to the job data for potential future use
     job_data = job.model_dump()
     job_data["user_email"] = current_user.get("email")
     job_data["user_sub"] = current_user.get("sub")
+    job_data["user_id"] = user_id
     
     # Validate theme
     if job.character_theme not in AVAILABLE_THEMES:

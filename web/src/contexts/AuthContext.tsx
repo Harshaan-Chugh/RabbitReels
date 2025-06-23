@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 
 interface User {
   sub: string;
@@ -30,6 +30,7 @@ interface AuthContextType {
   authenticatedFetch: (url: string, options?: RequestInit) => Promise<Response>;
   emailLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   emailRegister: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string }>;
+  validateToken: (token: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -38,49 +39,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8080';
 
-  // Check for existing token on mount
-  useEffect(() => {
-    const token = localStorage.getItem('jwt_token');
-    if (token) {
-      validateToken(token);
-    } else {
-      setLoading(false);
-    }
-  }, []);  const validateToken = async (token: string) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/me`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data.user);
-        
-        // Also fetch the full profile
-        fetchProfile(token);
-      } else {
-        // Token is invalid, remove it
-        localStorage.removeItem('jwt_token');
-        setUser(null);
-        setProfile(null);
-      }
-    } catch (error) {
-      console.error('Error validating token:', error);
-      localStorage.removeItem('jwt_token');
-      setUser(null);
-      setProfile(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchProfile = async (token: string) => {
+  const fetchProfile = useCallback(async (token: string) => {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/profile`, {
         headers: {
@@ -96,11 +57,84 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Error fetching profile:', error);
     }
-  };
-  const login = () => {
+  }, [API_BASE_URL]);
+
+  const validateToken = useCallback(async (token: string) => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/me`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setUser(data.user);
+        
+        // Also fetch the full profile
+        await fetchProfile(token);
+      } else {
+        // Token is invalid, remove it
+        localStorage.removeItem('jwt_token');
+        setUser(null);
+        setProfile(null);
+      }
+    } catch (error) {
+      console.error('Error validating token:', error);
+      localStorage.removeItem('jwt_token');
+      setUser(null);
+      setProfile(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [API_BASE_URL, fetchProfile]);
+
+  // Check for existing token on mount
+  useEffect(() => {
+    const token = localStorage.getItem('jwt_token');
+    if (token) {
+      validateToken(token);
+    } else {
+      setLoading(false);
+    }
+  }, [validateToken]);
+  // Listen for storage changes (when token is set from another tab/window)
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'jwt_token') {
+        if (e.newValue) {
+          validateToken(e.newValue);
+        } else {
+          // Token was removed
+          setUser(null);
+          setProfile(null);
+          setLoading(false);
+        }
+      }
+    };
+
+    const handleAuthRefresh = () => {
+      const token = localStorage.getItem('jwt_token');
+      if (token) {
+        validateToken(token);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('auth-refresh', handleAuthRefresh);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);      window.removeEventListener('auth-refresh', handleAuthRefresh);
+    };
+  }, [validateToken]);
+  const login = useCallback(() => {
     // Redirect to the OAuth login endpoint
     window.location.href = `${API_BASE_URL}/auth/login`;
-  };  const emailLogin = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  }, [API_BASE_URL]);
+
+  const emailLogin = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
@@ -124,12 +158,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         const errorData = await response.json().catch(() => ({ detail: 'Login failed' }));
         return { success: false, error: Array.isArray(errorData.detail) ? errorData.detail[0].msg : errorData.detail || 'Login failed' };
-      }
-    } catch (error) {
+      }    } catch (error) {
       console.error('Email login error:', error);
       return { success: false, error: 'Network error. Please try again.' };
     }
-  };  const emailRegister = async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> => {
+  }, [API_BASE_URL, validateToken]);
+
+  const emailRegister = useCallback(async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> => {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST',
@@ -153,19 +188,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         const errorData = await response.json().catch(() => ({ detail: 'Registration failed' }));
         return { success: false, error: Array.isArray(errorData.detail) ? errorData.detail[0].msg : errorData.detail || 'Registration failed' };
-      }
-    } catch (error) {
+      }    } catch (error) {
       console.error('Email registration error:', error);
       return { success: false, error: 'Network error. Please try again.' };
     }
-  };
-  const logout = () => {
+  }, [API_BASE_URL, validateToken]);
+
+  const logout = useCallback(() => {
     localStorage.removeItem('jwt_token');
     setUser(null);
     setProfile(null);
-  };
-
-  const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+  }, []);
+  const authenticatedFetch = useCallback(async (url: string, options: RequestInit = {}) => {
     const token = localStorage.getItem('jwt_token');
     if (!token) {
       throw new Error('No authentication token found');
@@ -181,7 +215,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ...options,
       headers,
     });
-  };  return (
+  }, []);return (
     <AuthContext.Provider value={{
       user,
       profile,
@@ -191,7 +225,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       authenticatedFetch,
       emailLogin,
-      emailRegister
+      emailRegister,
+      validateToken
     }}>
       {children}
     </AuthContext.Provider>

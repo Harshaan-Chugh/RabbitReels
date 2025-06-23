@@ -2,12 +2,20 @@
 
 import { useTheme } from "@/contexts/ThemeContext";
 import { useVideoCounter } from "@/contexts/VideoCounterContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useBilling } from "@/contexts/BillingContext";
 import Navbar from "@/components/Navbar";
 import Image from "next/image";
+import Link from "next/link";
 
 export default function Home() {
   const { darkMode, toggleDarkMode } = useTheme();
   const { videoCount } = useVideoCounter();
+  const { isAuthenticated, loading } = useAuth();
+  const { credits } = useBilling();
+
+  // Debug log to see when authentication state changes
+  console.log('Home page render - isAuthenticated:', isAuthenticated, 'loading:', loading, 'credits:', credits);
 
   return (
     <div className={`min-h-screen transition-colors ${darkMode ? 'bg-gradient-to-br from-gray-900 to-gray-800' : 'bg-gradient-to-br from-blue-50 to-purple-50'}`}>
@@ -40,18 +48,19 @@ export default function Home() {
         {/* Main Action Buttons */}
         <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4 relative">
           {/* "Star my repo!" callout - positioned above the "Run Locally" button */}
-          <div className="absolute -top-10 right-0 sm:right-0 sm:-top-10 text-center sm:transform sm:-translate-x-1/2 sm:left-auto sm:right-[calc(50%-32px)]">
+          <div className="absolute -top-6 right-0 sm:-top-6 sm:right-0 text-center">
             <span className={`text-xs font-bold ${darkMode ? 'text-blue-400' : 'text-blue-600'} bg-white dark:bg-gray-800 px-2 py-1 rounded-full shadow border whitespace-nowrap`}>
               ⭐ Star my repo!
             </span>
           </div>
 
-          {/* FIX: Changed from <Link> to <a> to ensure correct URL navigation */}
-          <a href="/generator/">
+          {/* Create Video Button */}
+          <Link href="/generator">
             <button className="w-full sm:w-auto bg-gradient-to-r from-pink-500 to-purple-600 text-white font-bold py-4 px-8 rounded-full shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 text-xl">
-              🐰 Create Video
+              {isAuthenticated && credits > 0 ? `🐰 Create Video (${credits} credits)` : '🐰 Create Video'}
             </button>
-          </a>
+          </Link>
+          
           <a href="https://github.com/Harshaan-Chugh/RabbitReels" target="_blank" rel="noopener noreferrer">
             <button className={`w-full py-4 px-6 rounded-xl font-bold text-lg border transition-colors ${
               darkMode

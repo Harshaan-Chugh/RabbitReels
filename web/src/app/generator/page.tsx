@@ -8,6 +8,7 @@ import Navbar from "@/components/Navbar";
 import { useVideoCounter } from "@/contexts/VideoCounterContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useBilling } from "@/contexts/BillingContext";
 import { v4 as uuid } from "uuid";
 
 type Status =
@@ -22,6 +23,7 @@ export default function Generator() {
   const [status, setStatus] = useState<Status>({ stage: "idle" });
   const { darkMode, toggleDarkMode } = useTheme();
   const { authenticatedFetch, isAuthenticated, login } = useAuth();
+  const { credits, refreshBalance } = useBilling();
   const { incrementVideoCount } = useVideoCounter();
   // Polling hook -------------------------------------------------------
   useEffect(() => {
@@ -56,6 +58,10 @@ export default function Generator() {
       alert("Please log in to create videos!");
       login();
       return;
+    }    if (credits <= 0) {
+      alert("You need credits to create videos! Redirecting to billing page...");
+      window.location.href = "/billing";
+      return;
     }
     
     const jobId = uuid();
@@ -67,8 +73,15 @@ export default function Generator() {
         body: JSON.stringify(body),
       });
       if (!r.ok) {
-        const msg = await r.text();
-        return alert(`Error: ${msg}`);      }
+        const errorData = await r.json().catch(() => ({ detail: "Unknown error" }));
+        if (r.status === 402) {          alert("Insufficient credits! Redirecting to billing page...");
+          window.location.href = "/billing";
+          return;
+        }
+        return alert(`Error: ${errorData.detail || "Failed to create video"}`);
+      }
+      // Refresh balance to show updated credit count
+      refreshBalance();
       // Don't increment here anymore - wait for completion
       setStatus({ stage: "queued", jobId });
     } catch (error) {
@@ -93,10 +106,22 @@ export default function Generator() {
               />
             </Link>
             RabbitReels Generator
-          </h1>
-          <p className={`text-xl ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+          </h1>          <p className={`text-xl ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
             Create AI-powered short videos with your favorite characters
           </p>
+          {isAuthenticated && (
+            <div className={`inline-block px-4 py-2 rounded-lg ${
+              credits > 0 
+                ? darkMode ? 'bg-green-900 text-green-300' : 'bg-green-100 text-green-800'
+                : darkMode ? 'bg-red-900 text-red-300' : 'bg-red-100 text-red-800'
+            }`}>              💳 Credits: <span className="font-bold">{credits}</span>
+              {credits === 0 && (
+                <Link href="/billing" className="ml-2 underline hover:no-underline">
+                  Buy more
+                </Link>
+              )}
+            </div>
+          )}
         </div>
 
         <div className={`rounded-xl p-8 shadow-xl space-y-8 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>

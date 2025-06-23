@@ -2,29 +2,43 @@
 
 import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 
 function AuthCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { validateToken } = useAuth();
 
   useEffect(() => {
     const token = searchParams.get('token');
     
     if (token) {
-      console.log('OAuth callback received token, storing and redirecting to home...');
-      
-      // Store the token
+      console.log('OAuth callback received token, storing and validating...');
+        // Store the token
       localStorage.setItem('jwt_token', token);
       
-      // Redirect to home page (not generator)
-      // The AuthProvider will automatically detect the token and update the user state
-      router.push('/');
+      // Trigger a custom event to refresh auth state
+      window.dispatchEvent(new Event('auth-refresh'));
+      
+      // Immediately validate the token to update AuthContext state
+      if (validateToken) {
+        validateToken(token).then(() => {
+          console.log('Token validated, redirecting to home...');
+          // Use router push instead of window.location for better UX
+          router.push('/');
+        }).catch((error) => {
+          console.error('Token validation failed:', error);
+          router.push('/?error=auth_failed');
+        });
+      } else {
+        // Fallback
+        router.push('/');
+      }
     } else {
       console.error('No token found in OAuth callback');
-      // No token found, redirect to home with error
       router.push('/?error=auth_failed');
     }
-  }, [searchParams, router]);
+  }, [searchParams, router, validateToken]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">

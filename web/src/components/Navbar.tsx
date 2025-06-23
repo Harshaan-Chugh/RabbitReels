@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useBilling } from "@/contexts/BillingContext";
 import Image from "next/image";
+import Link from "next/link";
 
 interface NavbarProps {
   darkMode: boolean;
@@ -17,7 +19,8 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
   const [formError, setFormError] = useState<string | null>(null);
   const [formData, setFormData] = useState({ email: '', password: '', name: '' });
   const { user, profile, isAuthenticated, login, logout, loading, emailLogin, emailRegister } = useAuth();
-  const profileMenuRef = useRef<HTMLDivElement>(null);  // Close profile menu when clicking outside
+  const { credits, loading: creditsLoading } = useBilling();
+  const profileMenuRef = useRef<HTMLDivElement>(null);// Close profile menu when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
@@ -47,15 +50,15 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
           return;
         }
         result = await emailRegister(formData.email, formData.password, formData.name);
-      }
-
-      if (result.success) {
+      }      if (result.success) {
         setShowAuthModal(false);
         setFormData({ email: '', password: '', name: '' });
         setFormError(null);
+        // Trigger auth refresh to ensure UI updates immediately
+        window.dispatchEvent(new Event('auth-refresh'));
       } else {
         setFormError(result.error || 'Authentication failed');
-      }    } catch {
+      }} catch {
       setFormError('An unexpected error occurred');
     } finally {
       setFormLoading(false);
@@ -74,21 +77,42 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
   return (
     <>
       <nav className={`fixed top-0 left-0 right-0 z-50 ${darkMode ? 'bg-gray-900/95' : 'bg-white/95'} backdrop-blur-sm border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-        <div className="container mx-auto px-4 py-3 flex items-center justify-between">
-          {/* Logo/Brand */}
-          <div className="flex items-center space-x-2">
-            <span className="text-2xl">🐰</span>
+        <div className="container mx-auto px-4 py-3 flex items-center justify-between">          {/* Logo/Brand */}
+          <Link href="/" className="flex items-center space-x-2 hover:opacity-80 transition-opacity">
+            <Image 
+              src="/rabbit_reels_logo.png" 
+              alt="RabbitReels Logo" 
+              width={32} 
+              height={32}
+              className="rounded"
+            />
             <span className={`text-xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
               RabbitReels
             </span>
-          </div>          {/* Right side buttons */}
+          </Link>{/* Right side buttons */}
           <div className="flex items-center space-x-4">
             {loading ? (
               <div className="animate-pulse flex space-x-4">
                 <div className="rounded-full bg-gray-300 h-8 w-8"></div>
               </div>
-            ) : isAuthenticated ? (              /* User Profile Menu */
-              <div className="relative" ref={profileMenuRef}>
+            ) : isAuthenticated ? (
+              <>                {/* Credits Display */}
+                <Link 
+                  href="/billing"
+                  className={`flex items-center space-x-2 px-3 py-2 rounded-lg transition-colors ${
+                    darkMode 
+                      ? 'bg-gray-800 text-white hover:bg-gray-700' 
+                      : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+                  }`}
+                >
+                  <span className="text-sm font-medium">
+                    {creditsLoading ? '...' : credits} Credits
+                  </span>
+                  <span className="text-xs">💳</span>
+                </Link>
+
+                {/* User Profile Menu */}
+                <div className="relative" ref={profileMenuRef}>
                 <button
                   onClick={() => setShowProfileMenu(!showProfileMenu)}
                   className="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-opacity-10 hover:bg-gray-500 transition-colors"
@@ -138,9 +162,15 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                             {user?.email}
                           </p>
                         </div>
-                      </div>
-                    </div>
+                      </div>                    </div>
                     <div className="py-1">
+                      <Link
+                        href="/billing"
+                        className={`block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}
+                        onClick={() => setShowProfileMenu(false)}
+                      >
+                        💳 Billing & Credits
+                      </Link>
                       <button
                         onClick={() => {
                           logout();
@@ -151,9 +181,9 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                         Sign out
                       </button>
                     </div>
-                  </div>
-                )}
+                  </div>                )}
               </div>
+              </>
             ) : (
               /* Auth buttons for unauthenticated users */              <>                <button
                   onClick={() => {
