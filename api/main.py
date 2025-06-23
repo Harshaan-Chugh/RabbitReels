@@ -129,7 +129,6 @@ async def lifespan(app: FastAPI):
     
     # Startup
     logger.info("Starting up FastAPI application...")
-    
     try:
         # Initialize Redis connection
         r = get_redis()
@@ -137,7 +136,8 @@ async def lifespan(app: FastAPI):
         logger.info("Redis connection established")
     except Exception as e:
         logger.error(f"Failed to establish Redis connection: {e}")
-        raise
+        logger.warning("Continuing without Redis - some features may be limited")
+        # Don't raise - allow the app to start without Redis for basic functionality
     
     try:
         # Initialize RabbitMQ connection with retry
