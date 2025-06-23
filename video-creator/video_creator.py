@@ -210,10 +210,10 @@ def build_caption_layers(sentence: str,
 
     if not word_times:
         return []
-    
-    MAX_CHARS_PER_LINE = 20
-    WORDS_PER_LINE = 3
-    MAX_WORD_LENGTH = 12
+
+    # Configuration for line breaking - FURTHER REDUCED to prevent overflow
+    MAX_CHARS_PER_LINE = 25  # Reduced from 28 to 25
+    WORDS_PER_LINE = 3       # Reduced from 4 to 3 words max per line
     
     # Split sentence into lines based on word count/length
     words = sentence.split()
@@ -222,26 +222,6 @@ def build_caption_layers(sentence: str,
     current_length = 0
     
     for word in words:
-        # Handle extremely long words by splitting them
-        if len(word) > MAX_WORD_LENGTH:
-            # If current line has content, finish it first
-            if current_line:
-                lines.append(current_line.copy())
-                current_line = []
-                current_length = 0
-            
-            # Split the long word into chunks
-            while len(word) > MAX_WORD_LENGTH:
-                chunk = word[:MAX_WORD_LENGTH]
-                lines.append([chunk])
-                word = word[MAX_WORD_LENGTH:]
-            
-            # Add remaining part if any
-            if word:
-                current_line = [word]
-                current_length = len(word)
-            continue
-        
         word_length = len(word) + 1  # +1 for space
         if (current_length + word_length > MAX_CHARS_PER_LINE or 
             len(current_line) >= WORDS_PER_LINE) and current_line:
@@ -307,16 +287,12 @@ def build_caption_layers(sentence: str,
         line_duration = line_end_time - line_start_time
         
         print(f"📝 Line {line_num + 1}: '{line_text}' from {line_start_time:.1f}s to {line_end_time:.1f}s at y={caption_y}")
-          # PERFORMANCE: Calculate individual word widths more efficiently
+        
+        # FIXED: Better width calculation and centering
         word_clips_info = []
         total_width = 0
         
-        # Create a single space clip for reuse
-        space_clip = TextClip(" ", font=FONT, fontsize=FONTSIZE, method="label")
-        space_width = space_clip.w
-        space_clip.close()
-        
-        # First pass: calculate individual word widths with batch processing
+        # First pass: calculate individual word widths
         for word_data in line_word_times:
             word_clip = TextClip(word_data["word"], font=FONT, fontsize=FONTSIZE, method="label")
             word_clips_info.append({
@@ -328,7 +304,10 @@ def build_caption_layers(sentence: str,
         
         # Add space widths (except for last word)
         if len(word_clips_info) > 1:
+            space_clip = TextClip(" ", font=FONT, fontsize=FONTSIZE)
+            space_width = space_clip.w
             total_width += space_width * (len(word_clips_info) - 1)
+            space_clip.close()
         else:
             space_width = 0
         
@@ -340,11 +319,13 @@ def build_caption_layers(sentence: str,
         
         # FIXED: Better centering calculation
         line_start_x = (1080 - total_width) // 2
-          # Ensure we don't go negative or too far right
+        
+        # Ensure we don't go negative or too far right
         line_start_x = max(40, min(line_start_x, 1040 - total_width))
         
         print(f"📐 Line width: {total_width}px, start_x: {line_start_x}")
         
+        # Second pass: create clips with correct positions
         current_x = line_start_x
         
         for i, word_info in enumerate(word_clips_info):
@@ -354,32 +335,37 @@ def build_caption_layers(sentence: str,
             word_end = word_data["end"]
             
             try:
-                # PERFORMANCE: Create text clips more efficiently with shared properties
-                text_props = {
-                    "font": FONT, 
-                    "fontsize": FONTSIZE,
-                    "stroke_width": STROKE, 
-                    "stroke_color": "black",
-                    "method": "label"
-                }
-                
-                white_word = (TextClip(word_text, color="white", **text_props)
+                # WHITE base word (visible for entire line duration)
+                white_word = (TextClip(word_text, 
+                                     font=FONT, 
+                                     fontsize=FONTSIZE,
+                                     color="white",
+                                     stroke_width=STROKE, 
+                                     stroke_color="black",
+                                     method="label")
                             .set_start(t_start + line_start_time)
                             .set_duration(line_duration)
                             .set_position((current_x, caption_y)))
                 
                 clips.append(white_word)
                 
-                yellow_word = (TextClip(word_text, color="yellow", **text_props)
+                # YELLOW highlight (visible only when this word is spoken)
+                yellow_word = (TextClip(word_text, 
+                                      font=FONT, 
+                                      fontsize=FONTSIZE,
+                                      color="yellow",
+                                      stroke_width=STROKE, 
+                                      stroke_color="black",
+                                      method="label")
                              .set_start(t_start + word_start)
                              .set_duration(word_end - word_start)
-                             .set_position((current_x, caption_y)))
+                             .set_position((current_x, caption_y)))  # SAME position as white
                 
                 clips.append(yellow_word)
                 
                 # Update position for next word
                 current_x += word_info["width"]
-                if i < len(word_clips_info) - 1:
+                if i < len(word_clips_info) - 1:  # Add space except for last word
                     current_x += space_width
                 
                 print(f"  📍 '{word_text}' at x={current_x - word_info['width']}")
@@ -443,9 +429,11 @@ def render_video(job: DialogJob) -> str:
                 available_speakers = list(asset_map.keys())
                 raise ValueError(f"Assets for speaker '{turn.speaker}' not found in theme '{job.character_theme}'. Available speakers: {available_speakers}")
             
+            # Progress for this turn (20% to 70% for all TTS processing)
             turn_progress = 0.2 + (i / total_turns) * 0.5
             update_progress(turn_progress, f"Generating speech for {turn.speaker} (turn {i+1}/{total_turns})")
             
+            # TTS + timestamps (with fallback and better error handling)
             try:
                 # Use voice_id from the new asset map
                 wav, wts = tts_with_timestamps(turn.text, speaker_assets["voice_id"], tmp)
@@ -471,13 +459,16 @@ def render_video(job: DialogJob) -> str:
                 print(f"🔊 Amplified {turn.speaker}'s voice by 25%")
             
             clip = raw.set_start(t_cursor)
-            audio_parts.append(clip)            # Use image from the new asset map
+            audio_parts.append(clip)
+
+            # Static character sprite (no bouncing)
+            # Use image from the new asset map
             img_path = os.path.join(os.path.dirname(__file__), "assets", speaker_assets["image"])
             
-            # PERFORMANCE: Optimize sprite creation
             sprite = (
-                ImageClip(img_path, duration=raw.duration)  # Set duration directly
+                ImageClip(img_path)
                 .resize(height=CHAR_HEIGHT)
+                .set_duration(raw.duration)
                 .set_start(t_cursor)
                 .set_position((30, 1920-CHAR_HEIGHT-150))  # Static position
             )
@@ -485,6 +476,7 @@ def render_video(job: DialogJob) -> str:
             
             print(f"🐰 Added {turn.speaker} static sprite: start={t_cursor:.1f}s, duration={raw.duration:.1f}s")
 
+            # captions
             caps = build_caption_layers(turn.text, wts, t_cursor)
             visuals.extend(caps)
 
@@ -494,34 +486,27 @@ def render_video(job: DialogJob) -> str:
             raise ValueError("No audio to render")
 
         update_progress(0.75, "Compositing video and audio")
-        total = t_cursor
+        total = t_cursor# randomize background start
         mstart = max(0, bg.duration - total - 5)
         rs = 0 if mstart <= 0 else random.uniform(0, mstart)
-        
-        # PERFORMANCE: Use subclip and crop more efficiently
         bg = (
             bg.subclip(rs, rs + total)
               .crop(width=1080, height=1920, x_center=bg.w/2, y_center=bg.h/2)
-              .set_fps(fps)  # Ensure consistent FPS
         )
 
         narration = CompositeAudioClip(audio_parts)
         mp3s = glob.glob(os.path.join(AUDIO_ASSETS_DIR, "*.mp3"))
         if mp3s:
-            # PERFORMANCE: Load background music once and loop it
-            music_clip = AudioFileClip(mp3s[0])
-            music = audio_loop(music_clip, duration=total).volumex(0.1)
+            music = audio_loop(AudioFileClip(mp3s[0]), duration=total).volumex(0.1)
             final_audio = CompositeAudioClip([narration, music])
-            music_clip.close()  # Clean up original clip
         else:
-            final_audio = narration        # PERFORMANCE: Set FPS on composite video for consistency
-        video = CompositeVideoClip([bg] + visuals, use_bgclip=True).set_audio(final_audio).set_fps(fps)
+            final_audio = narration
+
+        video = CompositeVideoClip([bg] + visuals).set_audio(final_audio)
         os.makedirs(VIDEO_OUT_DIR, exist_ok=True)
         out = os.path.join(VIDEO_OUT_DIR, f"{job.job_id}.mp4")
         
-        update_progress(0.85, "Finalizing video output")
-        
-        # PERFORMANCE: Use faster encoding settings for speed without visual quality loss
+        # Use better codec settings for compatibility
         video.write_videofile(
             out, 
             fps=fps, 
@@ -529,18 +514,14 @@ def render_video(job: DialogJob) -> str:
             audio_codec="aac",
             temp_audiofile="temp-audio.m4a",
             remove_temp=True,
-            preset="faster",  # Changed from "medium" to "faster" for 2x speed improvement
-            threads=4,        # Use multiple CPU threads for encoding
+            preset="medium",
             ffmpeg_params=[
                 "-movflags", "+faststart",  # Enable fast start for web streaming
                 "-pix_fmt", "yuv420p",      # Ensure compatibility with all players
                 "-crf", "23",               # Good quality balance
                 "-maxrate", "5M",           # Limit bitrate for file size
-                "-bufsize", "10M",          # Buffer size
-                "-tune", "fastdecode"       # Optimize for fast decoding
-            ],
-            verbose=False,    # Reduce console output for speed
-            logger=None       # Disable MoviePy logging for better performance
+                "-bufsize", "10M"           # Buffer size
+            ]
         )
 
         # cleanup
@@ -570,13 +551,14 @@ def on_message(ch, method, props, body):
         except Exception as e:
             print(f"Warning: Failed to update Redis status to rendering: {e}")
         
+        # Core video generation - this is the critical part
         video_path = render_video(job)
         
         # Verify video was created successfully
         if not os.path.exists(video_path) or os.path.getsize(video_path) < 1000:
             raise Exception("Video file not created properly or is too small")
         
-        # Update Redis status to done
+        # Update Redis status to done - this marks successful completion
         try:
             r = redis.from_url(REDIS_URL, decode_responses=True)
             status_data = {
@@ -590,10 +572,12 @@ def on_message(ch, method, props, body):
             print(f"Error updating Redis status to done: {e}")
             raise Exception(f"Video created but failed to update status: {str(e)}")
         
+        # Mark video generation as successful BEFORE any publisher/queue operations
         video_generation_successful = True
         print(f"✅ Video successfully created: {video_path}")
         
     except Exception as e:
+        # Video generation failed - update Redis to error status
         print(f"[✗] Video generation failed for {job.job_id}: {e}")
         
         try:
@@ -608,12 +592,14 @@ def on_message(ch, method, props, body):
         except Exception as redis_e:
             print(f"Warning: Failed to update Redis error status: {redis_e}")
     
+    # Post-processing operations (publisher queue) - failures here don't affect video status
     if video_generation_successful and video_path:
         try:
             msg = RenderJob(job_id=job.job_id,
                            title=job.title,
                            storage_path=video_path).model_dump_json()
             
+            # Only publish to publisher queue if publisher is enabled
             if ENABLE_PUBLISHER:
                 try:
                     conn = pika.BlockingConnection(pika.URLParameters(RABBIT_URL))
