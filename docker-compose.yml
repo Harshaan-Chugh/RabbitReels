@@ -68,6 +68,7 @@ services:
       PYTHONUNBUFFERED: "1"
       REDIS_URL: "redis://redis:6379/0"
       RABBIT_URL: "amqp://guest:guest@rabbitmq:5672/"
+      FRONTEND_URL: "http://localhost:3001"
     depends_on:
       rabbitmq:
         condition: service_healthy

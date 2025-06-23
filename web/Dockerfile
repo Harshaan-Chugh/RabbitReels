@@ -2,14 +2,10 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
 COPY web/package*.json ./
 RUN npm ci
 
-# Copy source code
 COPY web .
-
-# Build the application
 RUN npm run build
 
 # Production stage with Nginx

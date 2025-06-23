@@ -14,14 +14,15 @@ RabbitReels now includes **Google OAuth 2.0 authentication** to secure the API a
 ### Quick Start with Authentication
 
 1. **Set up Google OAuth** (see [OAUTH_SETUP.md](./OAUTH_SETUP.md))
-2. **Start the services**:
+2. **Set up Environment Variables** (see [.env.example](./.env.example)) and train your voice models with [speech-files](speech-files)
+3. **Start the services**:
    ```bash
    docker run -d -p 6379:6379 redis:7-alpine
    docker run -d -p 5672:5672 rabbitmq:3-management
    cd api && python main.py
    ```
-3. **Visit** `http://localhost:8080` and sign in with Google
-4. **Create videos** using the authenticated API
+4. **Visit** `http://localhost:8080` and sign in with Google
+5. **Create videos** using the authenticated API
 
 ## 🏗️ Architecture
 
