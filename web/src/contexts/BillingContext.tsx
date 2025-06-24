@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 import { loadStripe, Stripe } from '@stripe/stripe-js';
 
@@ -72,17 +72,7 @@ export function BillingProvider({ children }: { children: ReactNode }) {
     loadCreditPackages();
   }, [API_BASE_URL]);
 
-  // Load user's credit balance when authenticated
-  useEffect(() => {
-    if (isAuthenticated) {
-      refreshBalance();
-    } else {
-      setCredits(0);
-      setLoading(false);
-    }
-  }, [isAuthenticated]);
-
-  const refreshBalance = async () => {
+  const refreshBalance = useCallback(async () => {
     if (!isAuthenticated) return;
     
     try {
@@ -100,7 +90,17 @@ export function BillingProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isAuthenticated, authenticatedFetch, API_BASE_URL]);
+
+  // Load user's credit balance when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      refreshBalance();
+    } else {
+      setCredits(0);
+      setLoading(false);
+    }
+  }, [isAuthenticated, refreshBalance]);
 
   const purchaseCredits = async (credits: number) => {
     if (!isAuthenticated || !stripe) {

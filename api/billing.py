@@ -257,6 +257,15 @@ async def payment_success(session_id: str):
         
         if session.payment_status == "paid":
             credits = int(session.metadata.get("credits", 0))
+            user_id = session.get("client_reference_id")
+            
+            # Grant credits to user if not already granted
+            if user_id and credits > 0:
+                # Check if credits were already granted (to avoid double-granting)
+                current_credits = get_user_credits(user_id)
+                grant_credits(user_id, credits)
+                logger.info(f"Success endpoint: Granted {credits} credits to user {user_id}")
+            
             return {
                 "status": "success",
                 "message": f"Payment successful! {credits} credits have been added to your account.",
@@ -288,8 +297,9 @@ async def get_credit_prices():
     for credits, price_cents in CREDIT_PRICES.items():
         price_dollars = price_cents / 100
         savings = 0
-        if credits > 1:
-            single_price = credits * (CREDIT_PRICES[1] / 100)
+        if credits > 2:
+            # Use 2-credit package as baseline for savings calculation (50 cents per credit)
+            single_price = credits * (CREDIT_PRICES[2] / 2 / 100)
             savings = round(((single_price - price_dollars) / single_price) * 100)
         
         prices.append({

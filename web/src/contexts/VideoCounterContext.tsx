@@ -4,7 +4,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 
 interface VideoCounterContextType {
   videoCount: number;
-  incrementVideoCount: () => void;
+  refreshVideoCount: () => void;
 }
 
 const VideoCounterContext = createContext<VideoCounterContextType | undefined>(undefined);
@@ -39,28 +39,21 @@ export function VideoCounterProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('videoCount', videoCount.toString());
   }, [videoCount]);
 
-  const incrementVideoCount = async () => {
+  const refreshVideoCount = async () => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/video-count/increment`, {
-        method: 'POST',
-      });
-      
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/video-count`);
       if (response.ok) {
         const data = await response.json();
         setVideoCount(data.count);
-      } else {
-        // Fallback to local increment if API fails
-        setVideoCount(prev => prev + 1);
       }
     } catch (error) {
-      console.error('Failed to increment video count:', error);
-      // Fallback to local increment if API fails
-      setVideoCount(prev => prev + 1);
+      console.error('Failed to refresh video count:', error);
+      // Keep current count if refresh fails
     }
   };
 
   return (
-    <VideoCounterContext.Provider value={{ videoCount, incrementVideoCount }}>
+    <VideoCounterContext.Provider value={{ videoCount, refreshVideoCount }}>
       {children}
     </VideoCounterContext.Provider>
   );

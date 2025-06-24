@@ -9,7 +9,7 @@ import Navbar from "@/components/Navbar";
 
 function SuccessContent() {
   const { darkMode } = useTheme();
-  const { isAuthenticated, authenticatedFetch } = useAuth();
+  const { isAuthenticated } = useAuth();
   const { refreshBalance } = useBilling();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
@@ -41,7 +41,7 @@ function SuccessContent() {
           if (isAuthenticated) {
             setTimeout(() => {
               refreshBalance();
-            }, 1000);
+            }, 2000);
           }
         } else {
           setStatus('error');
@@ -62,7 +62,7 @@ function SuccessContent() {
   };
 
   const handleViewBilling = () => {
-    router.push('/billing');
+    router.push('/billing/');
   };
 
   return (

@@ -456,16 +456,49 @@ def health_check():
     
     return health_status
 
+def get_backup_count():
+    """Get video count from backup file."""
+    backup_file = "/app/data/video_count_backup.txt"
+    try:
+        if os.path.exists(backup_file):
+            with open(backup_file, 'r') as f:
+                return int(f.read().strip())
+    except Exception as e:
+        logger.error(f"Error reading backup count: {e}")
+    return 0
+
+def save_backup_count(count):
+    """Save video count to backup file."""
+    backup_file = "/app/data/video_count_backup.txt"
+    try:
+        os.makedirs(os.path.dirname(backup_file), exist_ok=True)
+        with open(backup_file, 'w') as f:
+            f.write(str(count))
+    except Exception as e:
+        logger.error(f"Error saving backup count: {e}")
+
 @app.get("/video-count", tags=["Statistics"])
 def get_video_count():
     """Get the current video generation count."""
     try:
         r = get_redis()
         count = r.get("video_generation_count")
-        return {"count": int(count) if count else 0}
+        
+        if count is None:
+            # Redis doesn't have the count, try to restore from backup
+            backup_count = get_backup_count()
+            if backup_count > 0:
+                r.set("video_generation_count", backup_count)
+                logger.info(f"Restored video count from backup: {backup_count}")
+                return {"count": backup_count}
+            return {"count": 0}
+        
+        return {"count": int(count)}
     except Exception as e:
         logger.error(f"Error getting video count: {e}")
-        return {"count": 0}
+        # Fallback to backup file
+        backup_count = get_backup_count()
+        return {"count": backup_count}
 
 @app.post("/video-count/increment", tags=["Statistics"])
 def increment_video_count():
@@ -473,6 +506,10 @@ def increment_video_count():
     try:
         r = get_redis()
         new_count = r.incr("video_generation_count")
+        
+        # Save to backup file for persistence
+        save_backup_count(new_count)
+        
         logger.info(f"Video count incremented to {new_count}")
         return {"count": new_count}
     except Exception as e:

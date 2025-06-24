@@ -28,7 +28,7 @@ API_RELOAD = os.getenv("API_RELOAD", "true").lower() == "true"
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-GOOGLE_AUTH_REDIRECT = os.getenv("GOOGLE_AUTH_REDIRECT", "http://localhost:8080/auth/callback")
+GOOGLE_AUTH_REDIRECT = os.getenv("GOOGLE_AUTH_REDIRECT", "http://localhost:3001/auth/callback")
 
 JWT_SECRET = os.getenv("JWT_SECRET", "super-secret-change-me")
 JWT_ALG = "HS256"
@@ -43,7 +43,7 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
 # Credit prices (in cents)
 CREDIT_PRICES = {
-    1: 50,    # $0.50 for 1 credit
+    2: 100,   # $1.00 for 2 credits
     10: 450,  # $4.50 for 10 credits (10% discount)
     50: 2000, # $20.00 for 50 credits (20% discount)
 }

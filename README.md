@@ -42,10 +42,10 @@ The system consists of:
 - [Video Creator](./video-creator/README.md) - Video processing pipeline
 - [Publisher](./publisher/README.md) - YouTube integration
 
-## 🚀 Next Steps
+## Other Stuff
 
 - [ ] Stripe payment integration
 - [ ] Usage limits and billing tiers  
-- [ ] Enhanced web frontend
-- [ ] Video template customization
-- [ ] Advanced analytics dashboard    
+- [ ] WIP: Enhanced web frontend
+- [ ] WIP: Video template customization
+- [ ] WIP: Advanced analytics dashboard

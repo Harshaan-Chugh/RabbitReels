@@ -98,7 +98,7 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
             ) : isAuthenticated ? (
               <>                {/* Credits Display */}
                 <Link 
-                  href="/billing"
+                  href="/billing/"
                   className={`flex items-center space-x-2 px-3 py-2 rounded-lg transition-colors ${
                     darkMode 
                       ? 'bg-gray-800 text-white hover:bg-gray-700' 
@@ -165,7 +165,7 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                       </div>                    </div>
                     <div className="py-1">
                       <Link
-                        href="/billing"
+                        href="/billing/"
                         className={`block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}
                         onClick={() => setShowProfileMenu(false)}
                       >

@@ -10,7 +10,7 @@ import Image from "next/image";
 
 export default function BillingPage() {
   const { darkMode, toggleDarkMode } = useTheme();
-  const { isAuthenticated, login, user } = useAuth();
+  const { isAuthenticated, login } = useAuth();
   const { credits, creditPackages, purchaseCredits, refreshBalance, loading } = useBilling();
   const [purchasing, setPurchasing] = useState<number | null>(null);
 
@@ -133,7 +133,7 @@ export default function BillingPage() {
                   
                   <div className="mb-4">
                     <div className={`text-3xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                      ${pkg.price_dollars}
+                      ${pkg.price_dollars.toFixed(2)}
                     </div>
                     {pkg.savings_percent > 0 && (
                       <div className="text-green-500 text-sm font-semibold">

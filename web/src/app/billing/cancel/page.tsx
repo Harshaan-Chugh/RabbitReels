@@ -9,7 +9,7 @@ export default function BillingCancelPage() {
   const router = useRouter();
 
   const handleTryAgain = () => {
-    router.push('/billing');
+    router.push('/billing/');
   };
 
   const handleGoHome = () => {

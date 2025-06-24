@@ -24,7 +24,7 @@ export default function Generator() {
   const { darkMode, toggleDarkMode } = useTheme();
   const { authenticatedFetch, isAuthenticated, login } = useAuth();
   const { credits, refreshBalance } = useBilling();
-  const { incrementVideoCount } = useVideoCounter();
+  const { refreshVideoCount } = useVideoCounter();
   // Polling hook -------------------------------------------------------
   useEffect(() => {
     if (status.stage !== "queued" && status.stage !== "rendering") return;
@@ -36,8 +36,9 @@ export default function Generator() {
         const js = await r.json();
         if (js.status === "done") {
           setStatus({ stage: "done", jobId: id, downloadUrl: js.download_url });
-          // Increment video count when video is actually done
-          incrementVideoCount();
+          // Video count is automatically incremented by the video creator service
+          // Refresh the count display to show the updated number
+          refreshVideoCount();
           clearInterval(t);
         } else if (js.status === "error") {
           setStatus({ stage: "error", msg: js.error_msg || "unknown error" });
@@ -50,7 +51,7 @@ export default function Generator() {
       }
     }, 5000);
     return () => clearInterval(t);
-  }, [status, incrementVideoCount]);  // Submit -------------------------------------------------------------
+  }, [status]);  // Submit -------------------------------------------------------------
   const handleCreate = async () => {
     if (!prompt.trim()) return alert("Enter a prompt!");
     
@@ -60,7 +61,7 @@ export default function Generator() {
       return;
     }    if (credits <= 0) {
       alert("You need credits to create videos! Redirecting to billing page...");
-      window.location.href = "/billing";
+      window.location.href = "/billing/";
       return;
     }
     
@@ -75,7 +76,7 @@ export default function Generator() {
       if (!r.ok) {
         const errorData = await r.json().catch(() => ({ detail: "Unknown error" }));
         if (r.status === 402) {          alert("Insufficient credits! Redirecting to billing page...");
-          window.location.href = "/billing";
+          window.location.href = "/billing/";
           return;
         }
         return alert(`Error: ${errorData.detail || "Failed to create video"}`);
@@ -116,7 +117,7 @@ export default function Generator() {
                 : darkMode ? 'bg-red-900 text-red-300' : 'bg-red-100 text-red-800'
             }`}>              💳 Credits: <span className="font-bold">{credits}</span>
               {credits === 0 && (
-                <Link href="/billing" className="ml-2 underline hover:no-underline">
+                <Link href="/billing/" className="ml-2 underline hover:no-underline">
                   Buy more
                 </Link>
               )}

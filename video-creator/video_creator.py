@@ -576,6 +576,25 @@ def on_message(ch, method, props, body):
         video_generation_successful = True
         print(f"✅ Video successfully created: {video_path}")
         
+        # Increment the global video generation counter
+        try:
+            r = redis.from_url(REDIS_URL, decode_responses=True)
+            new_count = r.incr("video_generation_count")
+            
+            # Also save to backup file for persistence
+            try:
+                backup_file = "/app/data/video_count_backup.txt"
+                os.makedirs(os.path.dirname(backup_file), exist_ok=True)
+                with open(backup_file, 'w') as f:
+                    f.write(str(new_count))
+                print(f"📊 Global video count incremented to: {new_count} (backed up)")
+            except Exception as backup_e:
+                print(f"⚠️ Failed to backup video counter: {backup_e}")
+                print(f"📊 Global video count incremented to: {new_count}")
+                
+        except Exception as e:
+            print(f"⚠️ Failed to increment video counter (non-critical): {e}")
+        
     except Exception as e:
         # Video generation failed - update Redis to error status
         print(f"[✗] Video generation failed for {job.job_id}: {e}")
