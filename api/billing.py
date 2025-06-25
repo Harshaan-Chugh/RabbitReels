@@ -8,8 +8,10 @@ import json
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from auth import get_current_user
+from database import get_db, CreditBalance, CreditTransaction
 from config import (
     STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET,
@@ -49,80 +51,81 @@ def get_redis():
     from config import REDIS_URL
     return redis.from_url(REDIS_URL, decode_responses=True)
 
-def get_user_credits(user_id: str) -> int:
-    """Get user's current credit balance."""
+def get_user_credits(user_id: str, db: Session) -> int:
+    """Get user's current credit balance from database."""
     try:
-        r = get_redis()
-        balance = r.get(f"credits:{user_id}")
-        return int(balance) if balance else 0
+        balance = db.query(CreditBalance).filter(CreditBalance.user_id == user_id).first()
+        return balance.credits if balance else 0
     except Exception as e:
         logger.error(f"Error getting user credits for {user_id}: {e}")
         return 0
 
-def grant_credits(user_id: str, credits: int) -> None:
-    """Grant credits to a user."""
+def grant_credits(user_id: str, credits: int, db: Session) -> None:
+    """Grant credits to a user in database."""
     try:
-        r = get_redis()
-        r.incrby(f"credits:{user_id}", credits)
+        # Get or create credit balance
+        balance = db.query(CreditBalance).filter(CreditBalance.user_id == user_id).first()
+        if balance:
+            balance.credits += credits
+        else:
+            balance = CreditBalance(user_id=user_id, credits=credits)
+            db.add(balance)
         
-        # Log the transaction
-        import time
-        import json
-        transaction = {
-            "amount": credits,
-            "timestamp": str(int(time.time())),
-            "description": f"Purchased {credits} credits"
-        }
-        
-        # Store transaction history (keep last 100 transactions)
-        transaction_key = f"credit_transactions:{user_id}"
-        r.lpush(transaction_key, json.dumps(transaction))
-        r.ltrim(transaction_key, 0, 99)  # Keep only last 100
+        # Log the transaction using database model
+        from database import CreditTransaction as DBCreditTransaction
+        transaction = DBCreditTransaction(
+            user_id=user_id,
+            amount=credits,
+            description=f"Purchased {credits} credits"
+        )
+        db.add(transaction)
+        db.commit()
         
         logger.info(f"Granted {credits} credits to user {user_id}")
     except Exception as e:
+        db.rollback()
         logger.error(f"Error granting credits to {user_id}: {e}")
         raise
 
-def spend_credit(user_id: str) -> None:
-    """Spend one credit from user's balance."""
+def spend_credit(user_id: str, db: Session) -> None:
+    """Spend one credit from user's balance in database."""
     try:
-        r = get_redis()
-        balance = get_user_credits(user_id)
+        balance = db.query(CreditBalance).filter(CreditBalance.user_id == user_id).first()
         
-        if balance <= 0:
+        if not balance or balance.credits <= 0:
             raise HTTPException(
                 status_code=402,
                 detail="Insufficient credits. Please purchase more credits to continue."
             )
         
-        r.decr(f"credits:{user_id}")
+        balance.credits -= 1
         
-        # Log the transaction
-        import time
-        import json
-        transaction = {
-            "amount": -1,
-            "timestamp": str(int(time.time())),
-            "description": "Video generation"
-        }
+        # Log the transaction using database model
+        from database import CreditTransaction as DBCreditTransaction
+        transaction = DBCreditTransaction(
+            user_id=user_id,
+            amount=-1,
+            description="Video generation"
+        )
+        db.add(transaction)
+        db.commit()
         
-        transaction_key = f"credit_transactions:{user_id}"
-        r.lpush(transaction_key, json.dumps(transaction))
-        r.ltrim(transaction_key, 0, 99)
-        
-        logger.info(f"Spent 1 credit for user {user_id}, remaining: {balance - 1}")
+        logger.info(f"Spent 1 credit for user {user_id}, remaining: {balance.credits}")
     except HTTPException:
         raise
     except Exception as e:
+        db.rollback()
         logger.error(f"Error spending credit for {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Error processing credit")
 
 @router.get("/balance", response_model=BalanceResponse)
-async def get_balance(current_user: Dict[str, Any] = Depends(get_current_user)):
+async def get_balance(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Get user's current credit balance."""
     user_id = str(current_user["sub"])  # JWT uses "sub" for user ID
-    credits = get_user_credits(user_id)
+    credits = get_user_credits(user_id, db)
     return BalanceResponse(credits=credits)
 
 @router.post("/checkout-session", response_model=CheckoutResponse)
@@ -180,7 +183,7 @@ async def create_checkout_session(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/webhook", include_in_schema=False)
-async def stripe_webhook(request: Request):
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     """Handle Stripe webhook events."""
     if not STRIPE_WEBHOOK_SECRET:
         logger.error("Stripe webhook secret not configured")
@@ -213,11 +216,21 @@ async def stripe_webhook(request: Request):
             # Extract user info and credits from session
             user_id = session.get("client_reference_id")
             credits = int(session.get("metadata", {}).get("credits", 0))
+            session_id = session.get("id")
             
             if user_id and credits > 0:
-                # Grant credits to user
-                grant_credits(user_id, credits)
-                logger.info(f"Webhook: Granted {credits} credits to user {user_id}")
+                # Check if we've already processed this session to avoid double crediting
+                r = get_redis()
+                processed_key = f"processed_session:{session_id}"
+                
+                if r.get(processed_key):
+                    logger.info(f"Webhook: Session {session_id} already processed, skipping")
+                else:
+                    # Grant credits to user
+                    grant_credits(user_id, credits, db)
+                    # Mark session as processed (expires in 24 hours)
+                    r.setex(processed_key, 86400, "1")
+                    logger.info(f"Webhook: Granted {credits} credits to user {user_id}")
             else:
                 logger.error(f"Webhook: Missing user_id or credits in session {session.get('id')}")
         
@@ -226,10 +239,20 @@ async def stripe_webhook(request: Request):
             session = event["data"]["object"]
             user_id = session.get("client_reference_id")
             credits = int(session.get("metadata", {}).get("credits", 0))
+            session_id = session.get("id")
             
             if user_id and credits > 0:
-                grant_credits(user_id, credits)
-                logger.info(f"Webhook: Async payment succeeded, granted {credits} credits to user {user_id}")
+                # Check if we've already processed this session
+                r = get_redis()
+                processed_key = f"processed_session:{session_id}"
+                
+                if r.get(processed_key):
+                    logger.info(f"Webhook: Async session {session_id} already processed, skipping")
+                else:
+                    grant_credits(user_id, credits, db)
+                    # Mark session as processed (expires in 24 hours)
+                    r.setex(processed_key, 86400, "1")
+                    logger.info(f"Webhook: Async payment succeeded, granted {credits} credits to user {user_id}")
         
         elif event["type"] == "checkout.session.async_payment_failed":
             # Handle failed async payments
@@ -246,7 +269,7 @@ async def stripe_webhook(request: Request):
     return {"status": "success"}
 
 @router.get("/success")
-async def payment_success(session_id: str):
+async def payment_success(session_id: str, db: Session = Depends(get_db)):
     """Handle successful payment redirect."""
     if not session_id:
         raise HTTPException(status_code=400, detail="Missing session ID")
@@ -254,24 +277,25 @@ async def payment_success(session_id: str):
     try:
         # Retrieve the session to get details
         session = stripe.checkout.Session.retrieve(session_id)
+        logger.info(f"Retrieved session: {session_id}, payment_status: {session.payment_status}")
         
         if session.payment_status == "paid":
             credits = int(session.metadata.get("credits", 0))
             user_id = session.get("client_reference_id")
+            logger.info(f"Payment is paid. Credits: {credits}, User ID: {user_id}")
             
-            # Grant credits to user if not already granted
-            if user_id and credits > 0:
-                # Check if credits were already granted (to avoid double-granting)
-                current_credits = get_user_credits(user_id)
-                grant_credits(user_id, credits)
-                logger.info(f"Success endpoint: Granted {credits} credits to user {user_id}")
+            # Check if credits were already granted via webhook
+            current_credits = get_user_credits(user_id, db)
+            logger.info(f"Current credits for user {user_id}: {current_credits}")
             
             return {
                 "status": "success",
                 "message": f"Payment successful! {credits} credits have been added to your account.",
-                "credits": credits
+                "credits": credits,
+                "current_balance": current_credits
             }
         else:
+            logger.info(f"Payment status is not paid: {session.payment_status}")
             return {
                 "status": "pending",
                 "message": "Payment is being processed. Credits will be added shortly."

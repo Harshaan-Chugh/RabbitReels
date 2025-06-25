@@ -10,12 +10,14 @@ from authlib.integrations.starlette_client import OAuth, OAuthError
 from jose import jwt
 import redis
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from config import (
     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_AUTH_REDIRECT,
     JWT_SECRET, JWT_ALG, JWT_EXPIRES_SEC, REDIS_URL, FRONTEND_URL
 )
 from user_models import UserRegistration, UserLogin, UserResponse, TokenResponse
+from database import get_db, User
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 security = HTTPBearer()
@@ -44,21 +46,56 @@ def create_jwt_token(user_data: Dict) -> str:
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
-def get_user_by_email(email: str) -> Optional[Dict]:
-    """Get user data by email from Redis."""
+def get_user_by_email(email: str, db: Session = None) -> Optional[Dict]:
+    """Get user data by email from database and Redis cache."""
+    # First try Redis cache
     user_data = rdb.get(f"user_email:{email}")
     if user_data:
         return json.loads(user_data)
+    
+    # If not in Redis, try database
+    if db:
+        db_user = db.query(User).filter(User.email == email).first()
+        if db_user:
+            user_dict = {
+                "id": db_user.id,
+                "email": db_user.email,
+                "name": db_user.name,
+                "auth_provider": db_user.auth_provider,
+                "google_sub": db_user.google_sub,
+                "picture": db_user.picture,
+                "created_at": int(db_user.created_at.timestamp()) if db_user.created_at else int(time.time())
+            }
+            # Cache in Redis
+            rdb.set(f"user:{db_user.id}", json.dumps(user_dict), ex=30*24*3600)
+            rdb.set(f"user_email:{email}", json.dumps(user_dict), ex=30*24*3600)
+            return user_dict
+    
     return None
 
-def store_user(user_data: Dict) -> str:
-    """Store user data in Redis and return user ID."""
+def store_user(user_data: Dict, db: Session = None) -> str:
+    """Store user data in both database and Redis cache."""
     user_id = str(uuid.uuid4())
     user_data["id"] = user_id
     user_data["created_at"] = int(time.time())
     
+    # Store in Redis cache
     rdb.set(f"user:{user_id}", json.dumps(user_data), ex=30*24*3600)
     rdb.set(f"user_email:{user_data['email']}", json.dumps(user_data), ex=30*24*3600)
+    
+    # Store in database
+    if db:
+        db_user = User(
+            id=user_id,
+            email=user_data["email"],
+            name=user_data["name"],
+            auth_provider=user_data.get("auth_provider", "email"),
+            google_sub=user_data.get("google_sub"),
+            picture=user_data.get("picture"),
+            password_hash=user_data.get("password_hash")
+        )
+        db.add(db_user)
+        db.commit()
     
     return user_id
 
@@ -72,9 +109,9 @@ oauth.register(
 )
 
 @router.post("/register", response_model=TokenResponse)
-async def register_user(user_data: UserRegistration):
+async def register_user(user_data: UserRegistration, db: Session = Depends(get_db)):
     """Register a new user with email and password."""
-    existing_user = get_user_by_email(user_data.email)
+    existing_user = get_user_by_email(user_data.email, db)
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
@@ -88,7 +125,7 @@ async def register_user(user_data: UserRegistration):
         "auth_provider": "email"
     }
     
-    user_id = store_user(user_info)
+    user_id = store_user(user_info, db)
     user_info["id"] = user_id
     
     token = create_jwt_token(user_info)
@@ -104,9 +141,9 @@ async def register_user(user_data: UserRegistration):
     return TokenResponse(access_token=token, user=user_response)
 
 @router.post("/login", response_model=TokenResponse)
-async def login_user(login_data: UserLogin):
+async def login_user(login_data: UserLogin, db: Session = Depends(get_db)):
     """Login with email and password."""
-    user = get_user_by_email(login_data.email)
+    user = get_user_by_email(login_data.email, db)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
@@ -132,7 +169,7 @@ async def login(request: Request):
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @router.get("/callback")
-async def auth_callback(request: Request):
+async def auth_callback(request: Request, db: Session = Depends(get_db)):
     """Handle Google OAuth callback and issue JWT token."""
     try:
         token = await oauth.google.authorize_access_token(request)
@@ -142,7 +179,7 @@ async def auth_callback(request: Request):
 
     google_sub = user["sub"]
     
-    existing_user = get_user_by_email(user.get("email"))
+    existing_user = get_user_by_email(user.get("email"), db)
     
     if existing_user:
         token_str = create_jwt_token(existing_user)
@@ -155,7 +192,7 @@ async def auth_callback(request: Request):
             "google_sub": google_sub,
             "auth_provider": "google"
         }
-        user_id = store_user(user_data)
+        user_id = store_user(user_data, db)
         user_data["id"] = user_id
         token_str = create_jwt_token(user_data)
 

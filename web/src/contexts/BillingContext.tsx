@@ -73,17 +73,26 @@ export function BillingProvider({ children }: { children: ReactNode }) {
   }, [API_BASE_URL]);
 
   const refreshBalance = useCallback(async () => {
-    if (!isAuthenticated) return;
+    console.log('refreshBalance called - isAuthenticated:', isAuthenticated);
+    if (!isAuthenticated) {
+      console.log('User not authenticated, skipping balance fetch');
+      return;
+    }
     
     try {
       setLoading(true);
+      console.log('Fetching balance from:', `${API_BASE_URL}/billing/balance`);
       const response = await authenticatedFetch(`${API_BASE_URL}/billing/balance`);
       
+      console.log('Balance response status:', response.status);
       if (response.ok) {
         const data = await response.json();
+        console.log('Balance data received:', data);
         setCredits(data.credits || 0);
       } else {
-        console.error('Failed to fetch credit balance');
+        console.error('Failed to fetch credit balance, status:', response.status);
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
       }
     } catch (error) {
       console.error('Error fetching credit balance:', error);

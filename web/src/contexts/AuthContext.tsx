@@ -201,7 +201,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
   const authenticatedFetch = useCallback(async (url: string, options: RequestInit = {}) => {
     const token = localStorage.getItem('jwt_token');
+    console.log('authenticatedFetch called for:', url);
+    console.log('Token exists:', !!token);
     if (!token) {
+      console.error('No authentication token found');
       throw new Error('No authentication token found');
     }
 
@@ -211,11 +214,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ...options.headers,
     };
 
+    console.log('Making authenticated request to:', url);
     return fetch(url, {
       ...options,
       headers,
     });
-  }, []);return (
+  }, []);
+
+  return (
     <AuthContext.Provider value={{
       user,
       profile,

@@ -15,6 +15,9 @@ PUBLISH_QUEUE = os.getenv("PUBLISH_QUEUE", "publish-queue")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
+# PostgreSQL configuration
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://rabbitreels:rabbitreels_password@postgres:5432/rabbitreels")
+
 VIDEO_OUT_DIR = os.getenv("VIDEO_OUT_DIR", "../data/videos")
 
 AVAILABLE_THEMES = [
@@ -24,17 +27,30 @@ AVAILABLE_THEMES = [
 
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8080"))
-API_RELOAD = os.getenv("API_RELOAD", "true").lower() == "true"
+API_RELOAD = os.getenv("API_RELOAD", "false").lower() == "true"  # Disable reload in production
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_AUTH_REDIRECT = os.getenv("GOOGLE_AUTH_REDIRECT", "http://localhost:3001/auth/callback")
 
-JWT_SECRET = os.getenv("JWT_SECRET", "super-secret-change-me")
+JWT_SECRET = os.getenv("JWT_SECRET")
+if not JWT_SECRET:
+    raise ValueError("JWT_SECRET environment variable is required for production")
 JWT_ALG = "HS256"
 JWT_EXPIRES_SEC = 7 * 24 * 3600
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3001")
+
+# Production settings
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+DEBUG = ENVIRONMENT == "development"
+
+# Session configuration
+SESSION_SECRET = os.getenv("SESSION_SECRET")
+if ENVIRONMENT == "production" and not SESSION_SECRET:
+    raise ValueError("SESSION_SECRET environment variable is required for production")
+elif not SESSION_SECRET:
+    SESSION_SECRET = "dev-session-secret-change-in-production"
 
 # Stripe configuration
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")

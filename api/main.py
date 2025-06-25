@@ -25,9 +25,13 @@ from config import (
     PUBLISH_QUEUE,
     VIDEO_OUT_DIR,
     REDIS_URL,
-    AVAILABLE_THEMES
+    AVAILABLE_THEMES,
+    SESSION_SECRET,
+    FRONTEND_URL,
+    DEBUG
 )
 from auth import router as auth_router, get_current_user
+from database import init_db
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -125,37 +129,28 @@ async def status_consumer():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global status_consumer_task
+    global redis_client, status_consumer_task
     
     # Startup
     logger.info("Starting up FastAPI application...")
-    try:
-        # Initialize Redis connection
-        r = get_redis()
-        r.ping()  # Test connection
-        logger.info("Redis connection established")
-    except Exception as e:
-        logger.error(f"Failed to establish Redis connection: {e}")
-        logger.warning("Continuing without Redis - some features may be limited")
-        # Don't raise - allow the app to start without Redis for basic functionality
     
+    # Initialize Redis connection
+    redis_client = get_redis()
+    logger.info("Redis connection established")
+    
+    # Initialize database
     try:
-        # Initialize RabbitMQ connection with retry
-        max_retries = 5
-        for attempt in range(max_retries):
-            try:
-                get_rabbit_channel()
-                logger.info("RabbitMQ connection established")
-                break
-            except Exception as e:
-                logger.error(f"RabbitMQ connection attempt {attempt + 1} failed: {e}")
-                if attempt == max_retries - 1:
-                    logger.error("Failed to establish RabbitMQ connection after all retries")
-                    raise
-                await asyncio.sleep(2)
+        init_db()
+        logger.info("Database initialized")
     except Exception as e:
-        logger.error(f"Failed to establish RabbitMQ connection: {e}")
-        raise
+        logger.error(f"Failed to initialize database: {e}")
+    
+    # Initialize RabbitMQ connection
+    try:
+        get_rabbit_channel()
+        logger.info("RabbitMQ connection established")
+    except Exception as e:
+        logger.error(f"Failed to connect to RabbitMQ: {e}")
     
     # Start background status consumer
     status_consumer_task = asyncio.create_task(status_consumer())
@@ -165,19 +160,11 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down FastAPI application...")
-    
     if status_consumer_task:
         status_consumer_task.cancel()
         try:
             await status_consumer_task
         except asyncio.CancelledError:
-            pass
-    
-    if redis_client:
-        try:
-            redis_client.close()
-            logger.info("Redis connection closed")
-        except:
             pass
 
 # Create FastAPI app
@@ -188,19 +175,23 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add CORS middleware
+# Add CORS middleware with production-appropriate settings
+allowed_origins = [FRONTEND_URL]
+if DEBUG:
+    allowed_origins.extend(["http://localhost:3001", "http://localhost:3000", "http://127.0.0.1:3001"])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
 # Add session middleware for OAuth
 app.add_middleware(
     SessionMiddleware,
-    secret_key="your-session-secret-key-change-this-in-production"
+    secret_key=SESSION_SECRET
 )
 
 # Include auth router

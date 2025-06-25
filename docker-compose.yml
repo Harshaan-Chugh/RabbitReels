@@ -19,6 +19,9 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    command: redis-server --appendonly yes --save 60 1000
+    volumes:
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s
@@ -57,6 +60,24 @@ services:
     volumes:
       - videos-data:/app/data/videos
     restart: on-failure
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: rabbitreels
+      POSTGRES_USER: rabbitreels
+      POSTGRES_PASSWORD: rabbitreels_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rabbitreels -d rabbitreels"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -69,14 +90,18 @@ services:
       REDIS_URL: "redis://redis:6379/0"
       RABBIT_URL: "amqp://guest:guest@rabbitmq:5672/"
       FRONTEND_URL: "http://localhost:3001"
+      DATABASE_URL: "postgresql://rabbitreels:rabbitreels_password@postgres:5432/rabbitreels"
     depends_on:
       rabbitmq:
         condition: service_healthy
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     volumes:
       - videos-data:/app/data/videos
     restart: on-failure
+
   web:
     build:
       context: .
@@ -91,4 +116,8 @@ services:
 
 volumes:
   videos-data:
+    driver: local
+  redis-data:
+    driver: local
+  postgres-data:
     driver: local
