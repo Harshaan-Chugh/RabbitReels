@@ -11,6 +11,11 @@ venv/
 .env
 .env.*.local
 .env.production
+.cursorignore
+
+# Production docker compose
+docker-compose.prod.yml
+
 # Local data/video outputs
 /data/videos/
 

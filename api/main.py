@@ -6,6 +6,7 @@ import time
 import sys
 from typing import Optional
 from contextlib import asynccontextmanager
+from sqlalchemy.orm import Session
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -16,6 +17,7 @@ from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from fastapi import APIRouter
 import uvicorn
 
 from common.schemas import PromptJob, VideoStatus
@@ -31,7 +33,7 @@ from config import (
     DEBUG
 )
 from auth import router as auth_router, get_current_user
-from database import init_db
+from database import init_db, get_db
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -43,7 +45,11 @@ def get_redis():
     """Get Redis client connection."""
     global redis_client
     if redis_client is None:
+        try:
         redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+        except Exception as e:
+            logger.warning(f"Redis connection failed: {e}")
+            return None
     return redis_client
 
 def get_rabbit_channel():
@@ -75,6 +81,7 @@ def get_rabbit_channel():
 async def status_consumer():
     """Background task to consume status updates from RabbitMQ."""
     logger.info("Starting status consumer...")
+    
       # For now, we'll implement a simple approach:
     # 1. When jobs are submitted, they start as "queued"
     # 2. The video-creator service will update Redis status directly
@@ -85,8 +92,16 @@ async def status_consumer():
             await asyncio.sleep(5)  # Check every 5 seconds
             
             r = get_redis()
-            # Get all job keys
-            job_keys = r.keys("*")
+            if r is None:
+                logger.warning("Redis not available, skipping status consumer iteration")
+                await asyncio.sleep(10)  # Wait longer if Redis is down
+                continue
+                
+            # Get all job keys, but filter out billing-related keys
+            all_keys = r.keys("*")
+            if all_keys is None:
+                all_keys = []
+            job_keys = [key for key in all_keys if not key.startswith("processed_session:")]
             
             for job_key in job_keys:
                 # Skip non-job keys
@@ -96,6 +111,10 @@ async def status_consumer():
                 try:
                     job_data = r.get(job_key)
                     if not job_data:
+                        continue
+                        
+                    # Skip if the data is not a string (like integers from billing system)
+                    if not isinstance(job_data, str):
                         continue
                         
                     status_info = json.loads(job_data)
@@ -135,8 +154,12 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up FastAPI application...")
     
     # Initialize Redis connection
+    try:
     redis_client = get_redis()
     logger.info("Redis connection established")
+    except Exception as e:
+        logger.warning(f"Redis connection failed: {e}")
+        redis_client = None
     
     # Initialize database
     try:
@@ -144,17 +167,22 @@ async def lifespan(app: FastAPI):
         logger.info("Database initialized")
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
+        raise  # Database is critical, fail startup if it can't connect
     
     # Initialize RabbitMQ connection
     try:
         get_rabbit_channel()
         logger.info("RabbitMQ connection established")
     except Exception as e:
-        logger.error(f"Failed to connect to RabbitMQ: {e}")
+        logger.warning(f"RabbitMQ connection failed: {e}")
     
-    # Start background status consumer
+    # Start background status consumer only if Redis is available
+    if redis_client:
     status_consumer_task = asyncio.create_task(status_consumer())
     logger.info("Background status consumer started")
+    else:
+        status_consumer_task = None
+        logger.info("Skipping background status consumer (Redis not available)")
     
     yield
     
@@ -195,11 +223,11 @@ app.add_middleware(
 )
 
 # Include auth router
-app.include_router(auth_router)
+app.include_router(auth_router, prefix="/api")
 
 # Include billing router
 from billing import router as billing_router
-app.include_router(billing_router)
+app.include_router(billing_router, prefix="/api")
 
 # Mount static files for the login page
 static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -239,7 +267,7 @@ def list_themes():
     return AVAILABLE_THEMES
 
 @app.post("/videos", status_code=202, response_model=VideoStatus, tags=["Videos"])
-def submit_video(job: PromptJob, current_user: dict = Depends(get_current_user)):
+def submit_video(job: PromptJob, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Submit a new prompt for video generation. Requires authentication and credits."""
     logger.info(f"Received job submission from user {current_user.get('email', 'unknown')}: {job.job_id} with theme '{job.character_theme}' and prompt: '{job.prompt[:50]}...'")
     
@@ -252,7 +280,7 @@ def submit_video(job: PromptJob, current_user: dict = Depends(get_current_user))
         raise HTTPException(status_code=400, detail="Invalid user session")
     
     try:
-        spend_credit(user_id)
+        spend_credit(user_id, db)
         logger.info(f"Credit spent for user {user_id} for job {job.job_id}")
     except HTTPException as e:
         logger.warning(f"Credit spending failed for user {user_id}: {e.detail}")
@@ -275,9 +303,11 @@ def submit_video(job: PromptJob, current_user: dict = Depends(get_current_user))
             detail=f"Invalid theme '{job.character_theme}'. Available themes: {AVAILABLE_THEMES}"
         )
     
-    try:        # Store initial status in Redis
+    try:
+        # Store initial status in Redis
         logger.info(f"Storing initial status in Redis for job {job.job_id}")
         r = get_redis()
+        if r is not None:
         status_data = {
             "job_id": job.job_id,
             "status": "queued",
@@ -287,6 +317,9 @@ def submit_video(job: PromptJob, current_user: dict = Depends(get_current_user))
         }
         r.set(job.job_id, json.dumps(status_data))
         logger.info(f"Successfully stored initial status for job {job.job_id}")
+        else:
+            logger.warning("Redis not available, skipping status storage")
+        
           # Publish to RabbitMQ with retry logic
         logger.info(f"Starting RabbitMQ publish for job {job.job_id}")
         max_retries = 3
@@ -325,6 +358,7 @@ def submit_video(job: PromptJob, current_user: dict = Depends(get_current_user))
                 
                 if attempt == max_retries - 1:
                     # Update status to error in Redis
+                    if r is not None:
                     error_status = {
                         "job_id": job.job_id,
                         "status": "error",
@@ -350,6 +384,9 @@ def get_video_status(job_id: str):
     """Get current status of a video job."""
     try:
         r = get_redis()
+        if r is None:
+            raise HTTPException(status_code=503, detail="Status service unavailable")
+            
         data = r.get(job_id)
         
         if not data:
@@ -370,6 +407,9 @@ def download_video(job_id: str):
     """Download the finished MP4 file."""
     try:
         r = get_redis()
+        if r is None:
+            raise HTTPException(status_code=503, detail="Status service unavailable")
+            
         data = r.get(job_id)
         
         if not data:
@@ -420,8 +460,11 @@ def health_check():
     try:
         # Check Redis connection
         r = get_redis()
+        if r is not None:
         r.ping()
         health_status["redis"] = "ok"
+        else:
+            health_status["redis"] = "not available"
     except Exception as e:
         health_status["redis"] = f"error: {str(e)}"
         health_status["status"] = "unhealthy"
@@ -440,7 +483,6 @@ def health_check():
             channel.close()
         if connection:
             connection.close()
-            
     except Exception as e:
         health_status["rabbitmq"] = f"error: {str(e)}"
         health_status["status"] = "unhealthy"
@@ -448,64 +490,54 @@ def health_check():
     return health_status
 
 def get_backup_count():
-    """Get video count from backup file."""
-    backup_file = "/app/data/video_count_backup.txt"
+    """Get backup video count from Redis."""
     try:
-        if os.path.exists(backup_file):
-            with open(backup_file, 'r') as f:
-                return int(f.read().strip())
+        r = get_redis()
+        if r is not None:
+            count = r.get("video_generation_count")
+            return int(count) if count else 0
+        else:
+            return 0
     except Exception as e:
-        logger.error(f"Error reading backup count: {e}")
+        logger.error(f"Error getting backup count: {e}")
     return 0
 
 def save_backup_count(count):
-    """Save video count to backup file."""
-    backup_file = "/app/data/video_count_backup.txt"
+    """Save backup video count to Redis."""
     try:
-        os.makedirs(os.path.dirname(backup_file), exist_ok=True)
-        with open(backup_file, 'w') as f:
-            f.write(str(count))
+        r = get_redis()
+        if r is not None:
+            r.set("video_generation_count", count)
     except Exception as e:
         logger.error(f"Error saving backup count: {e}")
 
 @app.get("/video-count", tags=["Statistics"])
 def get_video_count():
-    """Get the current video generation count."""
+    """Get total video generation count."""
     try:
         r = get_redis()
+        if r is not None:
         count = r.get("video_generation_count")
-        
-        if count is None:
-            # Redis doesn't have the count, try to restore from backup
-            backup_count = get_backup_count()
-            if backup_count > 0:
-                r.set("video_generation_count", backup_count)
-                logger.info(f"Restored video count from backup: {backup_count}")
-                return {"count": backup_count}
+            return {"count": int(count) if count else 0}
+        else:
             return {"count": 0}
-        
-        return {"count": int(count)}
     except Exception as e:
         logger.error(f"Error getting video count: {e}")
-        # Fallback to backup file
-        backup_count = get_backup_count()
-        return {"count": backup_count}
+        return {"count": 0}
 
 @app.post("/video-count/increment", tags=["Statistics"])
 def increment_video_count():
-    """Increment the video generation count."""
+    """Increment video generation count."""
     try:
         r = get_redis()
-        new_count = r.incr("video_generation_count")
-        
-        # Save to backup file for persistence
-        save_backup_count(new_count)
-        
-        logger.info(f"Video count incremented to {new_count}")
-        return {"count": new_count}
+        if r is not None:
+            count = r.incr("video_generation_count")
+            return {"count": count}
+        else:
+            return {"count": 0}
     except Exception as e:
         logger.error(f"Error incrementing video count: {e}")
-        raise HTTPException(status_code=500, detail="Failed to increment video count")
+        return {"count": 0}
 
 if __name__ == "__main__":
     from config import API_HOST, API_PORT, API_RELOAD

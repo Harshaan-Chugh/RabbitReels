@@ -5,7 +5,7 @@ import logging
 import stripe
 import time
 import json
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -17,7 +17,8 @@ from config import (
     STRIPE_WEBHOOK_SECRET,
     FRONTEND_URL,
     CREDIT_PRICES,
-    REDIS_URL
+    REDIS_URL,
+    ENVIRONMENT
 )
 
 # Configure Stripe
@@ -40,22 +41,29 @@ class CheckoutResponse(BaseModel):
 class BalanceResponse(BaseModel):
     credits: int
 
-class CreditTransaction(BaseModel):
+class CreditTransactionResponse(BaseModel):
     amount: int
     timestamp: str
     description: str
+
+class ProcessPaymentRequest(BaseModel):
+    session_id: str
 
 def get_redis():
     """Get Redis client - import here to avoid circular imports."""
     import redis
     from config import REDIS_URL
+    try:
     return redis.from_url(REDIS_URL, decode_responses=True)
+    except Exception as e:
+        logger.error(f"Failed to connect to Redis: {e}")
+        return None
 
 def get_user_credits(user_id: str, db: Session) -> int:
     """Get user's current credit balance from database."""
     try:
         balance = db.query(CreditBalance).filter(CreditBalance.user_id == user_id).first()
-        return balance.credits if balance else 0
+        return balance.credits if balance else 0  # type: ignore
     except Exception as e:
         logger.error(f"Error getting user credits for {user_id}: {e}")
         return 0
@@ -66,14 +74,13 @@ def grant_credits(user_id: str, credits: int, db: Session) -> None:
         # Get or create credit balance
         balance = db.query(CreditBalance).filter(CreditBalance.user_id == user_id).first()
         if balance:
-            balance.credits += credits
+            balance.credits += credits  # type: ignore
         else:
             balance = CreditBalance(user_id=user_id, credits=credits)
             db.add(balance)
         
         # Log the transaction using database model
-        from database import CreditTransaction as DBCreditTransaction
-        transaction = DBCreditTransaction(
+        transaction = CreditTransaction(
             user_id=user_id,
             amount=credits,
             description=f"Purchased {credits} credits"
@@ -92,17 +99,16 @@ def spend_credit(user_id: str, db: Session) -> None:
     try:
         balance = db.query(CreditBalance).filter(CreditBalance.user_id == user_id).first()
         
-        if not balance or balance.credits <= 0:
+        if not balance or balance.credits <= 0:  # type: ignore
             raise HTTPException(
                 status_code=402,
                 detail="Insufficient credits. Please purchase more credits to continue."
             )
         
-        balance.credits -= 1
+        balance.credits -= 1  # type: ignore
         
         # Log the transaction using database model
-        from database import CreditTransaction as DBCreditTransaction
-        transaction = DBCreditTransaction(
+        transaction = CreditTransaction(
             user_id=user_id,
             amount=-1,
             description="Video generation"
@@ -147,6 +153,12 @@ async def create_checkout_session(
         )
     
     try:
+        # Get user email safely
+        user_email = current_user.get("email")
+        if not user_email:
+            logger.warning(f"No email found for user {current_user.get('sub')}")
+            user_email = "customer@example.com"  # Fallback email
+        
         # Create checkout session
         session = stripe.checkout.Session.create(
             mode="payment",
@@ -161,30 +173,110 @@ async def create_checkout_session(
                     "unit_amount": CREDIT_PRICES[request.credits],
                 },
                 "quantity": 1,
-            }],            customer_email=current_user.get("email"),
+            }],
+            customer_email=user_email,
             client_reference_id=str(current_user["sub"]),
             metadata={
                 "user_id": str(current_user["sub"]),
                 "credits": str(request.credits),
-                "email": current_user.get("email", "")
+                "email": user_email
             },
             success_url=f"{FRONTEND_URL}/billing/success?session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{FRONTEND_URL}/billing/cancel",
         )
         
         logger.info(f"Created checkout session for user {current_user['sub']}: {session.id}")
+        
+        # Ensure session.url is not None
+        if not session.url:
+            raise HTTPException(status_code=500, detail="Failed to create checkout session URL")
+            
         return CheckoutResponse(url=session.url)
         
-    except stripe.error.StripeError as e:
-        logger.error(f"Stripe error creating checkout session: {e}")
-        raise HTTPException(status_code=500, detail="Payment processing error")
     except Exception as e:
         logger.error(f"Error creating checkout session: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+@router.post("/process-payment", include_in_schema=ENVIRONMENT == "development")
+async def process_payment_manually(
+    request: ProcessPaymentRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Development-only endpoint to manually process payments when webhooks aren't available.
+    This endpoint is only available in development mode.
+    """
+    if ENVIRONMENT != "development":
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="Stripe is not configured")
+    
+    try:
+        # Retrieve the session from Stripe
+        session = stripe.checkout.Session.retrieve(request.session_id)
+        
+        if session.payment_status != "paid":
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Payment not completed. Status: {session.payment_status}"
+            )
+        
+        # Verify this session belongs to the current user
+        if session.client_reference_id != str(current_user["sub"]):
+            raise HTTPException(
+                status_code=403,
+                detail="Session does not belong to current user"
+            )
+        
+        # Extract credits from metadata
+        metadata = session.metadata or {}
+        credits = int(metadata.get("credits", 0))
+        
+        if credits <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid credits amount in session"
+            )
+        
+        # Check if already processed (to prevent double crediting)
+        user_id = str(current_user["sub"])
+        r = get_redis()
+        processed_key = f"processed_session:{request.session_id}"
+        
+        if r and r.get(processed_key):
+            raise HTTPException(
+                status_code=409,
+                detail="Payment already processed"
+            )
+        
+        # Grant credits
+        grant_credits(user_id, credits, db)
+        
+        # Mark as processed
+        if r:
+            r.setex(processed_key, 86400, "1")  # Expire in 24 hours
+        
+        logger.info(f"Manually processed payment for user {user_id}: {credits} credits")
+        
+        return {
+            "status": "success",
+            "message": f"Successfully granted {credits} credits",
+            "credits": credits,
+            "new_balance": get_user_credits(user_id, db)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing payment manually: {e}")
+        raise HTTPException(status_code=500, detail="Error processing payment")
+
 @router.post("/webhook", include_in_schema=False)
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     """Handle Stripe webhook events."""
+    logger.info("Webhook hit. Raw body len=%s", len(await request.body()))
     if not STRIPE_WEBHOOK_SECRET:
         logger.error("Stripe webhook secret not configured")
         raise HTTPException(status_code=500, detail="Webhook not configured")
@@ -204,7 +296,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     except ValueError as e:
         logger.error(f"Invalid payload: {e}")
         raise HTTPException(status_code=400, detail="Invalid payload")
-    except stripe.error.SignatureVerificationError as e:
+    except Exception as e:
         logger.error(f"Invalid signature: {e}")
         raise HTTPException(status_code=400, detail="Invalid signature")
     
@@ -221,9 +313,14 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             if user_id and credits > 0:
                 # Check if we've already processed this session to avoid double crediting
                 r = get_redis()
+                if r is None:
+                    logger.error("Redis connection failed, cannot check for duplicate processing")
+                    # Still grant credits if Redis is down
+                    grant_credits(user_id, credits, db)
+                else:
                 processed_key = f"processed_session:{session_id}"
-                
-                if r.get(processed_key):
+                processed_value = r.get(processed_key)
+                if processed_value is not None and str(processed_value) == "1":
                     logger.info(f"Webhook: Session {session_id} already processed, skipping")
                 else:
                     # Grant credits to user
@@ -244,9 +341,14 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             if user_id and credits > 0:
                 # Check if we've already processed this session
                 r = get_redis()
+                if r is None:
+                    logger.error("Redis connection failed, cannot check for duplicate processing")
+                    # Still grant credits if Redis is down
+                    grant_credits(user_id, credits, db)
+                else:
                 processed_key = f"processed_session:{session_id}"
-                
-                if r.get(processed_key):
+                processed_value = r.get(processed_key)
+                if processed_value is not None and str(processed_value) == "1":
                     logger.info(f"Webhook: Async session {session_id} already processed, skipping")
                 else:
                     grant_credits(user_id, credits, db)
@@ -280,19 +382,61 @@ async def payment_success(session_id: str, db: Session = Depends(get_db)):
         logger.info(f"Retrieved session: {session_id}, payment_status: {session.payment_status}")
         
         if session.payment_status == "paid":
-            credits = int(session.metadata.get("credits", 0))
+            # Safely access metadata
+            metadata = session.metadata or {}
+            credits = int(metadata.get("credits", 0))
             user_id = session.get("client_reference_id")
+            
+            if not user_id:
+                raise HTTPException(status_code=400, detail="Invalid session: missing user ID")
+                
             logger.info(f"Payment is paid. Credits: {credits}, User ID: {user_id}")
             
             # Check if credits were already granted via webhook
             current_credits = get_user_credits(user_id, db)
             logger.info(f"Current credits for user {user_id}: {current_credits}")
             
+            # In development, check if we need manual processing
+            # We check if this session was already processed by looking for a recent transaction
+            needs_manual_processing = False
+            if ENVIRONMENT == "development":
+                logger.info(f"Development mode: checking for manual processing needed")
+                # Check if there's a recent transaction for this amount
+                recent_transaction = db.query(CreditTransaction).filter(
+                    CreditTransaction.user_id == user_id,
+                    CreditTransaction.amount == credits,
+                    CreditTransaction.description.like(f"%{credits} credits%")
+                ).order_by(CreditTransaction.created_at.desc()).first()
+                
+                logger.info(f"Looking for transaction: user_id={user_id}, amount={credits}, description like '%{credits} credits%'")
+                logger.info(f"Found recent transaction: {recent_transaction}")
+                
+                if not recent_transaction:
+                    needs_manual_processing = True
+                    logger.info(f"Development: Manual processing needed for session {session_id}")
+                else:
+                    logger.info(f"Development: Transaction found, no manual processing needed")
+            
+            logger.info(f"needs_manual_processing: {needs_manual_processing}")
+            
+            # Determine response based on whether manual processing is needed
+            if needs_manual_processing:
+                return {
+                    "status": "needs_manual_processing",
+                    "message": f"Payment successful! {credits} credits are ready to be activated.",
+                    "credits": credits,
+                    "current_balance": current_credits,
+                    "session_id": session_id,
+                    "development_note": "Manual processing required in development mode."
+                }
+            else:
             return {
                 "status": "success",
                 "message": f"Payment successful! {credits} credits have been added to your account.",
                 "credits": credits,
-                "current_balance": current_credits
+                    "current_balance": current_credits,
+                    "session_id": session_id,
+                    "development_note": None
             }
         else:
             logger.info(f"Payment status is not paid: {session.payment_status}")
@@ -301,7 +445,7 @@ async def payment_success(session_id: str, db: Session = Depends(get_db)):
                 "message": "Payment is being processed. Credits will be added shortly."
             }
     
-    except stripe.error.StripeError as e:
+    except Exception as e:
         logger.error(f"Error retrieving session {session_id}: {e}")
         raise HTTPException(status_code=500, detail="Error verifying payment")
 

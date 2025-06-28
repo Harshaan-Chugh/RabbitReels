@@ -7,13 +7,23 @@ from datetime import datetime
 import uuid
 import sys
 import config
+import logging
+
+logger = logging.getLogger(__name__)
 
 print('PYTHONPATH:', sys.path)
 DATABASE_URL = getattr(config, "DATABASE_URL", None)
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL could not be imported from config")
 
-engine = create_engine(DATABASE_URL)
+# Configure engine based on database type
+if DATABASE_URL.startswith('sqlite'):
+    logger.info(f"Using SQLite DATABASE_URL = {DATABASE_URL!r}")
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    logger.info(f"Using PostgreSQL DATABASE_URL = {DATABASE_URL!r}")
+    engine = create_engine(DATABASE_URL)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

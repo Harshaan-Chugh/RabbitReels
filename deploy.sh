@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # RabbitReels Production Deployment Script
-# This script sets up the application on a DigitalOcean droplet
+# For DigitalOcean Droplet: 64.23.135.94
 
 set -e
 
@@ -26,85 +26,115 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Check if running as root
-if [[ $EUID -eq 0 ]]; then
-   print_error "This script should not be run as root"
-   exit 1
+# Check if we're on the production server
+if [ "$(hostname)" != "rabbitreels-production" ]; then
+    print_warning "This script is designed for the production server (rabbitreels-production)"
+    print_warning "Current hostname: $(hostname)"
+    read -p "Continue anyway? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
 fi
 
-# Update system
-print_status "Updating system packages..."
-sudo apt update && sudo apt upgrade -y
+# Create production environment file
+print_status "Creating production environment file..."
 
-# Install Docker
-print_status "Installing Docker..."
-if ! command -v docker &> /dev/null; then
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sudo sh get-docker.sh
-    sudo usermod -aG docker $USER
-    rm get-docker.sh
-    print_warning "Docker installed. You may need to log out and back in for group changes to take effect."
-else
-    print_status "Docker already installed"
-fi
+cat > .env.production << 'EOF'
+# RabbitReels Production Environment Configuration
+# For DigitalOcean Droplet: 64.23.135.94
 
-# Install Docker Compose
-print_status "Installing Docker Compose..."
-if ! command -v docker-compose &> /dev/null; then
-    sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    sudo chmod +x /usr/local/bin/docker-compose
-else
-    print_status "Docker Compose already installed"
-fi
+# Environment
+ENVIRONMENT=production
 
-# Create application directory
-APP_DIR="/opt/rabbitreels"
-print_status "Creating application directory at $APP_DIR..."
-sudo mkdir -p $APP_DIR
-sudo chown $USER:$USER $APP_DIR
+# Database Configuration
+DATABASE_URL=postgresql://rabbitreels:your_secure_postgres_password@postgres:5432/rabbitreels
 
-# Copy application files
-print_status "Copying application files..."
-cp -r . $APP_DIR/
-cd $APP_DIR
+# Redis Configuration
+REDIS_URL=redis://redis:6379/0
+REDIS_PASSWORD=your_secure_redis_password
 
-# Create SSL directory
-sudo mkdir -p /etc/nginx/ssl
-sudo chown $USER:$USER /etc/nginx/ssl
+# RabbitMQ Configuration
+RABBIT_URL=amqp://guest:guest@rabbitmq:5672/
+RABBITMQ_USER=guest
+RABBITMQ_PASSWORD=guest
 
-# Generate self-signed certificate (replace with Let's Encrypt in production)
-print_status "Generating SSL certificate..."
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout /etc/nginx/ssl/key.pem \
-    -out /etc/nginx/ssl/cert.pem \
-    -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
+# API Configuration
+API_HOST=0.0.0.0
+API_PORT=8080
+API_RELOAD=false
 
-# Set up environment file
-if [ ! -f .env ]; then
-    print_warning "No .env file found. Please create one based on env.example"
-    print_status "Copying env.example to .env..."
-    cp env.example .env
-    print_error "Please edit .env file with your production values before continuing"
-    exit 1
-fi
+# Frontend Configuration (Update with your domain when you have one)
+FRONTEND_URL=http://64.23.135.94
 
-# Create data directories
-print_status "Creating data directories..."
-mkdir -p data/videos
-mkdir -p logs
+# Security (REQUIRED - Generate secure random strings)
+JWT_SECRET=your-super-secure-jwt-secret-key-here-minimum-32-chars
+SESSION_SECRET=your-super-secure-session-secret-key-here-minimum-32-chars
+
+# Google OAuth (REQUIRED)
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_AUTH_REDIRECT=http://64.23.135.94/auth/callback
+
+# Stripe Configuration (REQUIRED for billing)
+STRIPE_SECRET_KEY=sk_live_your_stripe_secret_key
+STRIPE_PUBLISHABLE_KEY=pk_live_your_stripe_publishable_key
+STRIPE_WEBHOOK_SECRET=whsec_your_stripe_webhook_secret
+
+# OpenAI Configuration (REQUIRED for script generation)
+OPENAI_API_KEY=sk-your-openai-api-key
+
+# ElevenLabs Configuration (REQUIRED for voice generation)
+ELEVEN_API_KEY=your-elevenlabs-api-key
+PETER_VOICE_ID=tP8wEHVL4B2h4NuNcRtl
+STEWIE_VOICE_ID=u58sF2rOukCb342nzwpN
+RICK_VOICE_ID=your-rick-voice-id
+MORTY_VOICE_ID=your-morty-voice-id
+
+# Video Processing
+VIDEO_OUT_DIR=./data/videos
+ENABLE_PUBLISHER=false
+
+# YouTube Publishing (Optional)
+YOUTUBE_CLIENT_SECRETS=path/to/credentials.json
+YOUTUBE_TOKEN=path/to/youtube-token.json
+
+# PostgreSQL (for docker-compose)
+POSTGRES_DB=rabbitreels
+POSTGRES_USER=rabbitreels
+POSTGRES_PASSWORD=your_secure_postgres_password
+
+# Frontend API Base URL
+NEXT_PUBLIC_API_BASE=http://64.23.135.94/api
+EOF
+
+print_status "Production environment file created: .env.production"
+print_warning "⚠️  IMPORTANT: You need to edit .env.production with your actual API keys and secrets!"
+
+# Create SSL directory for nginx
+print_status "Creating SSL directory..."
+mkdir -p ssl
 
 # Set proper permissions
 print_status "Setting file permissions..."
-chmod 600 .env
-chmod 755 deploy.sh
+chmod 600 .env.production
+chmod +x deploy.sh
 
-# Pull latest images
-print_status "Pulling Docker images..."
-docker-compose -f docker-compose.prod.yml pull
+# Open firewall ports
+print_status "Opening firewall ports..."
+sudo ufw allow 22/tcp    # SSH
+sudo ufw allow 80/tcp    # HTTP
+sudo ufw allow 443/tcp   # HTTPS
+sudo ufw allow 8080/tcp  # API (if needed externally)
 
-# Start services
-print_status "Starting services..."
-docker-compose -f docker-compose.prod.yml up -d
+# Enable firewall
+sudo ufw --force enable
+
+print_status "Firewall configured and enabled"
+
+# Build and start services
+print_status "Building and starting services..."
+docker-compose -f docker-compose.prod.yml --env-file .env.production up -d --build
 
 # Wait for services to be healthy
 print_status "Waiting for services to be healthy..."
@@ -116,50 +146,23 @@ docker-compose -f docker-compose.prod.yml ps
 
 # Test API health
 print_status "Testing API health..."
+sleep 10
 if curl -f http://localhost:8080/health > /dev/null 2>&1; then
-    print_status "✅ API is healthy"
+    print_status "✅ API is healthy!"
 else
-    print_warning "⚠️  API health check failed. Check logs with: docker-compose -f docker-compose.prod.yml logs api"
+    print_error "❌ API health check failed"
+    print_status "Checking API logs..."
+    docker-compose -f docker-compose.prod.yml logs api
 fi
 
-# Set up firewall
-print_status "Configuring firewall..."
-sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw --force enable
-
-# Create systemd service for auto-start
-print_status "Creating systemd service..."
-sudo tee /etc/systemd/system/rabbitreels.service > /dev/null <<EOF
-[Unit]
-Description=RabbitReels Application
-Requires=docker.service
-After=docker.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=$APP_DIR
-ExecStart=/usr/local/bin/docker-compose -f docker-compose.prod.yml up -d
-ExecStop=/usr/local/bin/docker-compose -f docker-compose.prod.yml down
-TimeoutStartSec=0
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl enable rabbitreels.service
-
-print_status "✅ Deployment completed successfully!"
-print_status "📝 Next steps:"
-print_status "1. Edit .env file with your production values"
-print_status "2. Restart services: docker-compose -f docker-compose.prod.yml restart"
-print_status "3. Check logs: docker-compose -f docker-compose.prod.yml logs -f"
-print_status "4. Set up domain and SSL certificates"
-print_status "5. Configure monitoring and backups"
-
-echo ""
-print_status "🌐 Application should be available at:"
-echo "   - HTTP: http://$(curl -s ifconfig.me)"
-echo "   - HTTPS: https://$(curl -s ifconfig.me) (after SSL setup)" 
+print_status "🎉 Deployment completed!"
+print_status "Your services are running on:"
+print_status "  - API: http://64.23.135.94:8080"
+print_status "  - Nginx: http://64.23.135.94"
+print_status ""
+print_warning "Next steps:"
+print_warning "1. Edit .env.production with your actual API keys"
+print_warning "2. Restart services: docker-compose -f docker-compose.prod.yml --env-file .env.production restart"
+print_warning "3. Set up your domain and SSL certificates"
+print_warning "4. Configure Stripe webhook to point to: http://64.23.135.94/api/webhook/stripe"
+print_warning "5. Update Google OAuth redirect URI to: http://64.23.135.94/auth/callback" 
