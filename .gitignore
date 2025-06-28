@@ -1,0 +1,38 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment variable files
+.env
+.env.*.local
+.env.production
+.cursorignore
+
+# Production docker compose
+docker-compose.prod.yml
+
+# Local data/video outputs
+/data/videos/
+
+# Docker artifacts
+.docker/
+docker-compose.override.yml
+
+# IDE/editor settings
+.vscode/
+.idea/
+
+# YouTube OAuth & Revid.ai credentials
+publisher/credentials.json
+publisher/youtube-token.json
+
+# Logs
+*.log
+
+# macOS Finder files
+.DS_Store
