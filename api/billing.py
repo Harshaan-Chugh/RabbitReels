@@ -54,7 +54,11 @@ def get_redis():
     import redis
     from config import REDIS_URL
     try:
+<<<<<<< HEAD
     return redis.from_url(REDIS_URL, decode_responses=True)
+=======
+        return redis.from_url(REDIS_URL, decode_responses=True)
+>>>>>>> master
     except Exception as e:
         logger.error(f"Failed to connect to Redis: {e}")
         return None
@@ -318,6 +322,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                     # Still grant credits if Redis is down
                     grant_credits(user_id, credits, db)
                 else:
+<<<<<<< HEAD
                 processed_key = f"processed_session:{session_id}"
                 processed_value = r.get(processed_key)
                 if processed_value is not None and str(processed_value) == "1":
@@ -328,6 +333,18 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                     # Mark session as processed (expires in 24 hours)
                     r.setex(processed_key, 86400, "1")
                     logger.info(f"Webhook: Granted {credits} credits to user {user_id}")
+=======
+                    processed_key = f"processed_session:{session_id}"
+                    processed_value = r.get(processed_key)
+                    if processed_value is not None and str(processed_value) == "1":
+                        logger.info(f"Webhook: Session {session_id} already processed, skipping")
+                    else:
+                        # Grant credits to user
+                        grant_credits(user_id, credits, db)
+                        # Mark session as processed (expires in 24 hours)
+                        r.setex(processed_key, 86400, "1")
+                        logger.info(f"Webhook: Granted {credits} credits to user {user_id}")
+>>>>>>> master
             else:
                 logger.error(f"Webhook: Missing user_id or credits in session {session.get('id')}")
         
@@ -346,6 +363,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                     # Still grant credits if Redis is down
                     grant_credits(user_id, credits, db)
                 else:
+<<<<<<< HEAD
                 processed_key = f"processed_session:{session_id}"
                 processed_value = r.get(processed_key)
                 if processed_value is not None and str(processed_value) == "1":
@@ -355,6 +373,17 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                     # Mark session as processed (expires in 24 hours)
                     r.setex(processed_key, 86400, "1")
                     logger.info(f"Webhook: Async payment succeeded, granted {credits} credits to user {user_id}")
+=======
+                    processed_key = f"processed_session:{session_id}"
+                    processed_value = r.get(processed_key)
+                    if processed_value is not None and str(processed_value) == "1":
+                        logger.info(f"Webhook: Async session {session_id} already processed, skipping")
+                    else:
+                        grant_credits(user_id, credits, db)
+                        # Mark session as processed (expires in 24 hours)
+                        r.setex(processed_key, 86400, "1")
+                        logger.info(f"Webhook: Async payment succeeded, granted {credits} credits to user {user_id}")
+>>>>>>> master
         
         elif event["type"] == "checkout.session.async_payment_failed":
             # Handle failed async payments
@@ -430,6 +459,7 @@ async def payment_success(session_id: str, db: Session = Depends(get_db)):
                     "development_note": "Manual processing required in development mode."
                 }
             else:
+<<<<<<< HEAD
             return {
                 "status": "success",
                 "message": f"Payment successful! {credits} credits have been added to your account.",
@@ -438,6 +468,16 @@ async def payment_success(session_id: str, db: Session = Depends(get_db)):
                     "session_id": session_id,
                     "development_note": None
             }
+=======
+                return {
+                    "status": "success",
+                    "message": f"Payment successful! {credits} credits have been added to your account.",
+                    "credits": credits,
+                    "current_balance": current_credits,
+                    "session_id": session_id,
+                    "development_note": None
+                }
+>>>>>>> master
         else:
             logger.info(f"Payment status is not paid: {session.payment_status}")
             return {
@@ -479,3 +519,7 @@ async def get_credit_prices():
         })
     
     return {"packages": prices}
+<<<<<<< HEAD
+=======
+
+>>>>>>> master

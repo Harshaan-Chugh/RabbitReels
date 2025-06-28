@@ -1,25 +1,28 @@
+version: '3.8'
+
 services:
-  rabbitmq:
-    image: rabbitmq:3-management
-    ports:
-      - "5672:5672"
-      - "15672:15672"
+  # Database
+  postgres:
+    image: postgres:15-alpine
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
-      PYTHONUNBUFFERED: "1"
+      POSTGRES_DB: rabbitreels
+      POSTGRES_USER: rabbitreels
+      POSTGRES_PASSWORD: IjnxShgB1CfpKs0Oj9gpMn2rmWJ2siS5LRsASUPQLx0=
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "rabbitmqctl", "status"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rabbitreels} -d ${POSTGRES_DB:-rabbitreels}"]
       interval: 30s
       timeout: 10s
       retries: 3
     restart: unless-stopped
+    networks:
+      - rabbitreels-network
 
+  # Redis for caching and job status
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    command: redis-server --appendonly yes --save 60 1000
+    command: redis-server --appendonly yes --save 60 1000 --requirepass ${REDIS_PASSWORD:-}
     volumes:
       - redis-data:/data
     healthcheck:
@@ -28,96 +31,145 @@ services:
       timeout: 10s
       retries: 3
     restart: unless-stopped
+    networks:
+      - rabbitreels-network
 
-  script-generator:
-    build:
-      context: .
-      dockerfile: scripts-generator/Dockerfile
-    env_file: .env
+  # Message Queue
+  rabbitmq:
+    image: rabbitmq:3-management
     environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
       PYTHONUNBUFFERED: "1"
-      RABBIT_URL: "amqp://guest:guest@rabbitmq:5672/"
-      REDIS_URL: "redis://redis:6379/0"
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-    restart: on-failure
-
-  video-creator:
-    build:
-      context: .
-      dockerfile: video-creator/Dockerfile
-    env_file: .env
-    environment:
-      PYTHONUNBUFFERED: "1"
-      RABBIT_URL: "amqp://guest:guest@rabbitmq:5672/"
-      REDIS_URL: "redis://redis:6379/0"
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - videos-data:/app/data/videos
-    restart: on-failure
-
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_DB: rabbitreels
-      POSTGRES_USER: rabbitreels
-      POSTGRES_PASSWORD: rabbitreels_password
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rabbitreels -d rabbitreels"]
+      test: ["CMD", "rabbitmqctl", "status"]
       interval: 30s
       timeout: 10s
       retries: 3
     restart: unless-stopped
+    networks:
+      - rabbitreels-network
 
+  # API Gateway
   api:
     build:
       context: .
       dockerfile: api/Dockerfile
     ports:
       - "8080:8080"
-    env_file: .env
+    env_file: .env.production
     environment:
       PYTHONUNBUFFERED: "1"
-      REDIS_URL: "redis://redis:6379/0"
-      RABBIT_URL: "amqp://guest:guest@rabbitmq:5672/"
-      FRONTEND_URL: "http://localhost:3001"
-      DATABASE_URL: "postgresql://rabbitreels:rabbitreels_password@postgres:5432/rabbitreels"
+      ENVIRONMENT: production
+      SESSION_SECRET: "58580CB34074EA82F892B1BD7ABA6400D50DA3B0F2F4B0C9DE321B776E287EE2"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - videos-data:/app/data/videos
+    restart: unless-stopped
+    networks:
+      - rabbitreels-network
+
+  # Next.js Frontend
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    env_file: .env.production
+    environment:
+      NEXT_PUBLIC_API_BASE: https://rabbitreels.us
+      ENVIRONMENT: production
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - rabbitreels-network
+
+  # Script Generator Worker
+  script-generator:
+    build:
+      context: .
+      dockerfile: scripts-generator/Dockerfile
+    env_file: .env.production
+    environment:
+      PYTHONUNBUFFERED: "1"
+      ENVIRONMENT: production
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - rabbitreels-network
+
+  # Video Creator Worker
+  video-creator:
+    build:
+      context: .
+      dockerfile: video-creator/Dockerfile
+    env_file: .env.production
+    environment:
+      PYTHONUNBUFFERED: "1"
+      ENVIRONMENT: production
     depends_on:
       rabbitmq:
         condition: service_healthy
       redis:
         condition: service_healthy
-      postgres:
+    volumes:
+      - videos-data:/app/data/videos
+    restart: on-failure
+    networks:
+      - rabbitreels-network
+
+  # Publisher Worker (Optional)
+  publisher:
+    build:
+      context: .
+      dockerfile: publisher/Dockerfile
+    env_file: .env.production
+    environment:
+      PYTHONUNBUFFERED: "1"
+      ENVIRONMENT: production
+    depends_on:
+      rabbitmq:
         condition: service_healthy
     volumes:
       - videos-data:/app/data/videos
     restart: on-failure
+    networks:
+      - rabbitreels-network
+    profiles:
+      - publisher
 
-  web:
-    build:
-      context: .
-      dockerfile: web/Dockerfile
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:1.25-alpine
     ports:
-      - "3001:80"
-    environment:
-      - NEXT_PUBLIC_API_BASE=http://api:8080
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - api
+      - web
     restart: unless-stopped
+    networks:
+      - rabbitreels-network
 
 volumes:
-  videos-data:
+  postgres-data:
     driver: local
   redis-data:
     driver: local
-  postgres-data:
+  videos-data:
     driver: local
+
+networks:
+  rabbitreels-network:
+    driver: bridge 

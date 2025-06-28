@@ -66,4 +66,8 @@ def get_db():
 
 def init_db():
     """Initialize database tables."""
+<<<<<<< HEAD
     Base.metadata.create_all(bind=engine) 
+=======
+    Base.metadata.create_all(bind=engine) 
+>>>>>>> master

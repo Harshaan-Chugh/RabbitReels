@@ -171,10 +171,21 @@ async def login(request: Request):
 @router.get("/callback")
 async def auth_callback(request: Request, db: Session = Depends(get_db)):
     """Handle Google OAuth callback and issue JWT token."""
+<<<<<<< HEAD
     try:
         token = await oauth.google.authorize_access_token(request)
         user = token["userinfo"]
     except OAuthError as e:
+=======
+    print("DEBUG: Callback endpoint hit!")
+    try:
+        token = await oauth.google.authorize_access_token(request)
+        print("DEBUG: Got token from Google")   
+        user = token["userinfo"]
+        print(f"DEBUG: User info: {user.get('email')}")
+    except OAuthError as e:
+        print(f"DEBUG: OAuth error: {e}")
+>>>>>>> master
         raise HTTPException(400, f"OAuth error: {e.error}")
 
     google_sub = user["sub"]

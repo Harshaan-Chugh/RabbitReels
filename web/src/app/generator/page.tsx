@@ -10,6 +10,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBilling } from "@/contexts/BillingContext";
 import { v4 as uuid } from "uuid";
+import { useRouter } from "next/navigation";
 
 type Status =
   | { stage: "idle" }
@@ -25,6 +26,7 @@ export default function Generator() {
   const { authenticatedFetch, isAuthenticated, login } = useAuth();
   const { credits, refreshBalance } = useBilling();
   const { refreshVideoCount } = useVideoCounter();
+  const router = useRouter();
   // Polling hook -------------------------------------------------------
   useEffect(() => {
     if (status.stage !== "queued" && status.stage !== "rendering") return;
@@ -59,9 +61,11 @@ export default function Generator() {
       alert("Please log in to create videos!");
       login();
       return;
-    }    if (credits <= 0) {
+    }
+    
+    if (credits <= 0) {
       alert("You need credits to create videos! Redirecting to billing page...");
-      window.location.href = "/billing/";
+      router.push("/billing/");
       return;
     }
     
@@ -75,8 +79,9 @@ export default function Generator() {
       });
       if (!r.ok) {
         const errorData = await r.json().catch(() => ({ detail: "Unknown error" }));
-        if (r.status === 402) {          alert("Insufficient credits! Redirecting to billing page...");
-          window.location.href = "/billing/";
+        if (r.status === 402) {
+          alert("Insufficient credits! Redirecting to billing page...");
+          router.push("/billing/");
           return;
         }
         return alert(`Error: ${errorData.detail || "Failed to create video"}`);

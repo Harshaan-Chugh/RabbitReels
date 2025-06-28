@@ -18,7 +18,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 # PostgreSQL configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://rabbitreels:IjnxShgB1CfpKs0Oj9gpMn2rmWJ2siS5LRsASUPQLx0=@postgres:5432/rabbitreels")
 
-VIDEO_OUT_DIR = os.getenv("VIDEO_OUT_DIR", "../data/videos")
+VIDEO_OUT_DIR = os.getenv("VIDEO_OUT_DIR", "/app/data/videos")
 
 AVAILABLE_THEMES = [
     "family_guy",
@@ -31,7 +31,7 @@ API_RELOAD = os.getenv("API_RELOAD", "false").lower() == "true"  # Disable reloa
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-GOOGLE_AUTH_REDIRECT = os.getenv("GOOGLE_AUTH_REDIRECT", "https://rabbitreels.us/api/auth/callback")
+GOOGLE_AUTH_REDIRECT = os.getenv("GOOGLE_AUTH_REDIRECT", "http://localhost:8080/api/auth/callback")
 
 JWT_SECRET = os.getenv("JWT_SECRET")
 if not JWT_SECRET:
@@ -39,7 +39,7 @@ if not JWT_SECRET:
 JWT_ALG = "HS256"
 JWT_EXPIRES_SEC = 7 * 24 * 3600
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://rabbitreels.us")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3001")
 
 # Production settings
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
