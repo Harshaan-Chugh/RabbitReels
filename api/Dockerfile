@@ -13,6 +13,7 @@ COPY api/auth.py .
 COPY api/billing.py .
 COPY api/user_models.py .
 COPY api/database.py .
+COPY api/video_count.py .
 
 # Copy shared code
 COPY common ./common

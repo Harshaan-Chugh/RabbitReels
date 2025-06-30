@@ -29,6 +29,9 @@ TTS_BACKOFF_MULTIPLIER = int(os.getenv("TTS_BACKOFF_MULTIPLIER", "2"))
 
 REDIS_URL = os.getenv("REDIS_URL")
 
+# PostgreSQL configuration
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://rabbitreels:IjnxShgB1CfpKs0Oj9gpMn2rmWJ2siS5LRsASUPQLx0=@postgres:5432/rabbitreels")
+
 LONG_BG_VIDEO = os.getenv(    "LONG_BG_VIDEO",
     os.path.join(os.path.dirname(__file__), 'assets', 'long_bg.mp4')
 )

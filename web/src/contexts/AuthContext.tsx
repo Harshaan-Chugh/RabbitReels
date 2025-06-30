@@ -43,7 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchProfile = useCallback(async (token: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/profile`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -62,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const validateToken = useCallback(async (token: string) => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/me`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -131,12 +131,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [validateToken]);
   const login = useCallback(() => {
     // Redirect to the OAuth login endpoint
-    window.location.href = `${API_BASE_URL}/auth/login`;
+    window.location.href = `${API_BASE_URL}/api/auth/login`;
   }, [API_BASE_URL]);
 
   const emailLogin = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -158,7 +158,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         const errorData = await response.json().catch(() => ({ detail: 'Login failed' }));
         return { success: false, error: Array.isArray(errorData.detail) ? errorData.detail[0].msg : errorData.detail || 'Login failed' };
-      }    } catch (error) {
+      }
+    } catch (error) {
       console.error('Email login error:', error);
       return { success: false, error: 'Network error. Please try again.' };
     }
@@ -166,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const emailRegister = useCallback(async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/register`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -188,7 +189,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         const errorData = await response.json().catch(() => ({ detail: 'Registration failed' }));
         return { success: false, error: Array.isArray(errorData.detail) ? errorData.detail[0].msg : errorData.detail || 'Registration failed' };
-      }    } catch (error) {
+      }
+    } catch (error) {
       console.error('Email registration error:', error);
       return { success: false, error: 'Network error. Please try again.' };
     }

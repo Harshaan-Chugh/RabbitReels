@@ -6,6 +6,11 @@ COPY web/package*.json ./
 RUN npm ci
 
 COPY web .
+
+# Set environment variable for build
+ARG NEXT_PUBLIC_API_BASE=http://localhost:8080
+ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
+
 RUN npm run build
 
 # Production stage with Nginx

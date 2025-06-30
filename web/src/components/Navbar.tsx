@@ -3,8 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBilling } from "@/contexts/BillingContext";
+import { useVideoCounter } from "@/contexts/VideoCounterContext";
 import Image from "next/image";
 import Link from "next/link";
+import CelebrationDialog from './CelebrationDialog';
 
 interface NavbarProps {
   darkMode: boolean;
@@ -20,7 +22,10 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
   const [formData, setFormData] = useState({ email: '', password: '', name: '' });
   const { user, profile, isAuthenticated, login, logout, loading, emailLogin, emailRegister } = useAuth();
   const { credits, loading: creditsLoading } = useBilling();
+  const { videoCount } = useVideoCounter();
   const profileMenuRef = useRef<HTMLDivElement>(null);// Close profile menu when clicking outside
+  const [showCelebration, setShowCelebration] = useState(false);
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
@@ -32,6 +37,22 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };  }, []);
+
+  useEffect(() => {
+    if (
+      isAuthenticated &&
+      user?.sub &&
+      credits === 1 &&
+      videoCount === 0 &&
+      !loading &&
+      !creditsLoading
+    ) {
+      const flagKey = `celebration_shown_${user.sub}`;
+      if (!localStorage.getItem(flagKey) && !showCelebration) {
+        setShowCelebration(true);
+      }
+    }
+  }, [isAuthenticated, user, credits, videoCount, loading, creditsLoading, showCelebration]);
 
   const handleGoogleAuth = () => {
     login();
@@ -54,7 +75,7 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
         setShowAuthModal(false);
         setFormData({ email: '', password: '', name: '' });
         setFormError(null);
-        // Trigger auth refresh to ensure UI updates immediately
+        setShowCelebration(true);
         window.dispatchEvent(new Event('auth-refresh'));
       } else {
         setFormError(result.error || 'Authentication failed');
@@ -72,6 +93,13 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
     if (formError) {
       setFormError(null);
     }
+  };
+
+  const handleCelebrationClose = () => {
+    if (user?.sub) {
+      localStorage.setItem(`celebration_shown_${user.sub}`, 'true');
+    }
+    setShowCelebration(false);
   };
 
   return (
@@ -200,21 +228,24 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                 >
                   Log in
                 </button>
-                <button
-                  onClick={() => {
-                    setIsLogin(false);
-                    setShowAuthModal(true);
-                    setFormData({ email: '', password: '', name: '' });
-                    setFormError(null);
-                  }}
-                  className={`px-4 py-2 rounded-lg border transition-colors ${
-                    darkMode
-                      ? 'border-gray-600 text-gray-300 hover:bg-gray-800'
-                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  Sign up
-                </button>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => {
+                      setIsLogin(false);
+                      setShowAuthModal(true);
+                      setFormData({ email: '', password: '', name: '' });
+                      setFormError(null);
+                    }}
+                    className={`px-4 py-2 rounded-lg border transition-colors ${
+                      darkMode
+                        ? 'border-gray-600 text-gray-300 hover:bg-gray-800'
+                        : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    Sign up
+                  </button>
+                  <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ml-1 ${darkMode ? 'bg-pink-900/60 text-pink-200' : 'bg-pink-100 text-pink-600'}`}>🎁 1 free video credit for new users!</span>
+                </div>
               </>
             )}
 
@@ -251,6 +282,10 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                 ×
               </button>
             </div>
+
+            {!isLogin && (
+              <div className={`mb-4 text-center text-sm font-semibold ${darkMode ? 'text-pink-300' : 'text-pink-600'}`}>🎁 Get 1 free video credit when you sign up!</div>
+            )}
 
             {/* Google Auth Button */}
             <button
@@ -368,6 +403,8 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
           </div>
         </div>
       )}
+
+      <CelebrationDialog open={showCelebration} onClose={handleCelebrationClose} darkMode={darkMode} />
     </>
   );
 }

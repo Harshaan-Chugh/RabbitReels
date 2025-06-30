@@ -17,7 +17,7 @@ from config import (
     JWT_SECRET, JWT_ALG, JWT_EXPIRES_SEC, REDIS_URL, FRONTEND_URL
 )
 from user_models import UserRegistration, UserLogin, UserResponse, TokenResponse
-from database import get_db, User
+from database import get_db, User, CreditBalance, CreditTransaction
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 security = HTTPBearer()
@@ -95,7 +95,21 @@ def store_user(user_data: Dict, db: Session = None) -> str:
             password_hash=user_data.get("password_hash")
         )
         db.add(db_user)
+        
+        # Grant 1 credit to new users
+        credit_balance = CreditBalance(user_id=user_id, credits=1)
+        db.add(credit_balance)
+        
+        # Log the welcome credit transaction
+        welcome_transaction = CreditTransaction(
+            user_id=user_id,
+            amount=1,
+            description="Welcome credit for new account"
+        )
+        db.add(welcome_transaction)
+        
         db.commit()
+        print(f"🎉 Granted 1 welcome credit to new user {user_id}")
     
     return user_id
 
@@ -171,12 +185,6 @@ async def login(request: Request):
 @router.get("/callback")
 async def auth_callback(request: Request, db: Session = Depends(get_db)):
     """Handle Google OAuth callback and issue JWT token."""
-<<<<<<< HEAD
-    try:
-        token = await oauth.google.authorize_access_token(request)
-        user = token["userinfo"]
-    except OAuthError as e:
-=======
     print("DEBUG: Callback endpoint hit!")
     try:
         token = await oauth.google.authorize_access_token(request)
@@ -185,7 +193,6 @@ async def auth_callback(request: Request, db: Session = Depends(get_db)):
         print(f"DEBUG: User info: {user.get('email')}")
     except OAuthError as e:
         print(f"DEBUG: OAuth error: {e}")
->>>>>>> master
         raise HTTPException(400, f"OAuth error: {e.error}")
 
     google_sub = user["sub"]

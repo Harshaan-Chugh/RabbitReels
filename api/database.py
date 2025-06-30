@@ -56,6 +56,13 @@ class CreditTransaction(Base):
     description = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class SystemStats(Base):
+    __tablename__ = "system_stats"
+    
+    key = Column(String, primary_key=True)
+    value = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 def get_db():
     """Get database session."""
     db = SessionLocal()
@@ -66,8 +73,4 @@ def get_db():
 
 def init_db():
     """Initialize database tables."""
-<<<<<<< HEAD
-    Base.metadata.create_all(bind=engine) 
-=======
-    Base.metadata.create_all(bind=engine) 
->>>>>>> master
+    Base.metadata.create_all(bind=engine)

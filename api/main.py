@@ -17,10 +17,7 @@ from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-<<<<<<< HEAD
 from fastapi import APIRouter
-=======
->>>>>>> master
 import uvicorn
 
 from common.schemas import PromptJob, VideoStatus
@@ -49,11 +46,7 @@ def get_redis():
     global redis_client
     if redis_client is None:
         try:
-<<<<<<< HEAD
-        redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-=======
             redis_client = redis.from_url(REDIS_URL, decode_responses=True)
->>>>>>> master
         except Exception as e:
             logger.warning(f"Redis connection failed: {e}")
             return None
@@ -89,11 +82,7 @@ async def status_consumer():
     """Background task to consume status updates from RabbitMQ."""
     logger.info("Starting status consumer...")
     
-<<<<<<< HEAD
-      # For now, we'll implement a simple approach:
-=======
     # For now, we'll implement a simple approach:
->>>>>>> master
     # 1. When jobs are submitted, they start as "queued"
     # 2. The video-creator service will update Redis status directly
     # 3. This consumer only handles transitioning from queued to rendering
@@ -166,13 +155,8 @@ async def lifespan(app: FastAPI):
     
     # Initialize Redis connection
     try:
-<<<<<<< HEAD
-    redis_client = get_redis()
-    logger.info("Redis connection established")
-=======
         redis_client = get_redis()
         logger.info("Redis connection established")
->>>>>>> master
     except Exception as e:
         logger.warning(f"Redis connection failed: {e}")
         redis_client = None
@@ -194,13 +178,8 @@ async def lifespan(app: FastAPI):
     
     # Start background status consumer only if Redis is available
     if redis_client:
-<<<<<<< HEAD
-    status_consumer_task = asyncio.create_task(status_consumer())
-    logger.info("Background status consumer started")
-=======
         status_consumer_task = asyncio.create_task(status_consumer())
         logger.info("Background status consumer started")
->>>>>>> master
     else:
         status_consumer_task = None
         logger.info("Skipping background status consumer (Redis not available)")
@@ -223,15 +202,12 @@ app = FastAPI(
     description="HTTP façade for RabbitMQ-based video pipeline",
     lifespan=lifespan
 )
+app.router.prefix = "/api"
 
-<<<<<<< HEAD
 # Add CORS middleware with production-appropriate settings
 allowed_origins = [FRONTEND_URL]
 if DEBUG:
     allowed_origins.extend(["http://localhost:3001", "http://localhost:3000", "http://127.0.0.1:3001"])
-=======
-allowed_origins = [FRONTEND_URL]
->>>>>>> master
 
 app.add_middleware(
     CORSMiddleware,
@@ -244,21 +220,15 @@ app.add_middleware(
 # Add session middleware for OAuth
 app.add_middleware(
     SessionMiddleware,
-<<<<<<< HEAD
     secret_key=SESSION_SECRET
-=======
-    secret_key=SESSION_SECRET,
-    same_site="none",
-    https_only=True
->>>>>>> master
 )
 
 # Include auth router
-app.include_router(auth_router, prefix="/api")
+app.include_router(auth_router)
 
 # Include billing router
 from billing import router as billing_router
-app.include_router(billing_router, prefix="/api")
+app.include_router(billing_router)
 
 # Mount static files for the login page
 static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -292,20 +262,12 @@ async def login_success(request: Request):
     else:
         return RedirectResponse(url="/static/success.html")
 
-<<<<<<< HEAD
 @app.get("/themes", tags=["Themes"])
-=======
-@app.get("/api/themes", tags=["Themes"])
->>>>>>> master
 def list_themes():
     """List available character themes."""
     return AVAILABLE_THEMES
 
-<<<<<<< HEAD
 @app.post("/videos", status_code=202, response_model=VideoStatus, tags=["Videos"])
-=======
-@app.post("/api/videos", status_code=202, response_model=VideoStatus, tags=["Videos"])
->>>>>>> master
 def submit_video(job: PromptJob, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Submit a new prompt for video generation. Requires authentication and credits."""
     logger.info(f"Received job submission from user {current_user.get('email', 'unknown')}: {job.job_id} with theme '{job.character_theme}' and prompt: '{job.prompt[:50]}...'")
@@ -347,21 +309,6 @@ def submit_video(job: PromptJob, current_user: dict = Depends(get_current_user),
         logger.info(f"Storing initial status in Redis for job {job.job_id}")
         r = get_redis()
         if r is not None:
-<<<<<<< HEAD
-        status_data = {
-            "job_id": job.job_id,
-            "status": "queued",
-            "user_email": current_user.get("email"),
-            "user_sub": current_user.get("sub"),
-            "submitted_at": int(time.time())
-        }
-        r.set(job.job_id, json.dumps(status_data))
-        logger.info(f"Successfully stored initial status for job {job.job_id}")
-        else:
-            logger.warning("Redis not available, skipping status storage")
-        
-          # Publish to RabbitMQ with retry logic
-=======
             status_data = {
                 "job_id": job.job_id,
                 "status": "queued",
@@ -375,7 +322,6 @@ def submit_video(job: PromptJob, current_user: dict = Depends(get_current_user),
             logger.warning("Redis not available, skipping status storage")
         
         # Publish to RabbitMQ with retry logic
->>>>>>> master
         logger.info(f"Starting RabbitMQ publish for job {job.job_id}")
         max_retries = 3
         for attempt in range(max_retries):
@@ -399,11 +345,7 @@ def submit_video(job: PromptJob, current_user: dict = Depends(get_current_user),
                 
             except Exception as e:
                 logger.error(f"RabbitMQ publish attempt {attempt + 1} failed: {e}")
-<<<<<<< HEAD
-                  # Clean up connections on error
-=======
                 # Clean up connections on error
->>>>>>> master
                 if channel:
                     try:
                         channel.close()
@@ -418,21 +360,12 @@ def submit_video(job: PromptJob, current_user: dict = Depends(get_current_user),
                 if attempt == max_retries - 1:
                     # Update status to error in Redis
                     if r is not None:
-<<<<<<< HEAD
-                    error_status = {
-                        "job_id": job.job_id,
-                        "status": "error",
-                        "error_msg": f"Failed to queue job after {max_retries} retries: {str(e)}"
-                    }
-                    r.set(job.job_id, json.dumps(error_status))
-=======
                         error_status = {
                             "job_id": job.job_id,
                             "status": "error",
                             "error_msg": f"Failed to queue job after {max_retries} retries: {str(e)}"
                         }
                         r.set(job.job_id, json.dumps(error_status))
->>>>>>> master
                     logger.error(f"Final failure for job {job.job_id}: {e}")
                     raise HTTPException(status_code=500, detail="Failed to queue job after retries")
                 
@@ -447,11 +380,7 @@ def submit_video(job: PromptJob, current_user: dict = Depends(get_current_user),
         logger.error(f"Unexpected error submitting job {job.job_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-<<<<<<< HEAD
 @app.get("/videos/{job_id}", response_model=VideoStatus, tags=["Videos"])
-=======
-@app.get("/api/videos/{job_id}", response_model=VideoStatus, tags=["Videos"])
->>>>>>> master
 def get_video_status(job_id: str):
     """Get current status of a video job."""
     try:
@@ -474,11 +403,7 @@ def get_video_status(job_id: str):
         logger.error(f"Error getting status for job {job_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-<<<<<<< HEAD
 @app.get("/videos/{job_id}/file", tags=["Videos"])
-=======
-@app.get("/api/videos/{job_id}/file", tags=["Videos"])
->>>>>>> master
 def download_video(job_id: str):
     """Download the finished MP4 file."""
     try:
@@ -537,13 +462,8 @@ def health_check():
         # Check Redis connection
         r = get_redis()
         if r is not None:
-<<<<<<< HEAD
-        r.ping()
-        health_status["redis"] = "ok"
-=======
             r.ping()
             health_status["redis"] = "ok"
->>>>>>> master
         else:
             health_status["redis"] = "not available"
     except Exception as e:
@@ -581,11 +501,7 @@ def get_backup_count():
             return 0
     except Exception as e:
         logger.error(f"Error getting backup count: {e}")
-<<<<<<< HEAD
-    return 0
-=======
         return 0
->>>>>>> master
 
 def save_backup_count(count):
     """Save backup video count to Redis."""
@@ -596,50 +512,88 @@ def save_backup_count(count):
     except Exception as e:
         logger.error(f"Error saving backup count: {e}")
 
-<<<<<<< HEAD
 @app.get("/video-count", tags=["Statistics"])
-=======
-@app.get("/api/video-count", tags=["Statistics"])
->>>>>>> master
-def get_video_count():
-    """Get total video generation count."""
+def get_video_count_endpoint(db: Session = Depends(get_db)):
+    """Get total video generation count from PostgreSQL."""
+    from video_count import get_video_count
     try:
-        r = get_redis()
-        if r is not None:
-<<<<<<< HEAD
-        count = r.get("video_generation_count")
-=======
-            count = r.get("video_generation_count")
->>>>>>> master
-            return {"count": int(count) if count else 0}
-        else:
-            return {"count": 0}
+        count = get_video_count(db)
+        return {"count": count}
     except Exception as e:
         logger.error(f"Error getting video count: {e}")
         return {"count": 0}
 
-<<<<<<< HEAD
 @app.post("/video-count/increment", tags=["Statistics"])
-=======
-@app.post("/api/video-count/increment", tags=["Statistics"])
->>>>>>> master
-def increment_video_count():
-    """Increment video generation count."""
+def increment_video_count_endpoint(db: Session = Depends(get_db)):
+    """Increment video generation count in PostgreSQL."""
+    from video_count import increment_video_count
     try:
-        r = get_redis()
-        if r is not None:
-            count = r.incr("video_generation_count")
-            return {"count": count}
-        else:
-            return {"count": 0}
+        count = increment_video_count(db)
+        return {"count": count}
     except Exception as e:
         logger.error(f"Error incrementing video count: {e}")
         return {"count": 0}
 
+@app.post("/video-count/set", tags=["Statistics"])
+def set_video_count_endpoint(count: int, db: Session = Depends(get_db)):
+    """Set video generation count to a specific value in PostgreSQL (admin only)."""
+    from video_count import set_video_count
+    try:
+        new_count = set_video_count(db, count)
+        return {"count": new_count, "message": f"Video count set to {new_count}"}
+    except Exception as e:
+        logger.error(f"Error setting video count: {e}")
+        return {"count": 0, "error": str(e)}
+
+@app.post("/video-count/add", tags=["Statistics"])
+def add_to_video_count_endpoint(amount: int, db: Session = Depends(get_db)):
+    """Add a specific amount to the video generation count in PostgreSQL (admin only)."""
+    from video_count import increment_video_count
+    try:
+        new_count = increment_video_count(db, amount)
+        return {"count": new_count, "message": f"Added {amount} to video count. New total: {new_count}"}
+    except Exception as e:
+        logger.error(f"Error adding to video count: {e}")
+        return {"count": 0, "error": str(e)}
+
+@app.post("/video-count/restore", tags=["Statistics"])
+def restore_video_count_endpoint(db: Session = Depends(get_db)):
+    """Restore video count from backup file (admin only)."""
+    from video_count import get_video_count, set_video_count
+    try:
+        backup_file = "/app/data/video_count_backup.txt"
+        if not os.path.exists(backup_file):
+            return {"count": 0, "error": "Backup file not found"}
+
+        with open(backup_file, 'r') as f:
+            backup_count = f.read().strip()
+
+        if not backup_count.isdigit():
+            return {"count": 0, "error": f"Invalid backup count format: {backup_count}"}
+
+        current_count = get_video_count(db)
+        backup_count = int(backup_count)
+
+        if backup_count > current_count:
+            new_count = set_video_count(db, backup_count)
+            return {"count": new_count, "message": f"Restored video count from backup: {new_count}"}
+        else:
+            return {"count": current_count, "message": f"Database count ({current_count}) is higher than backup ({backup_count}), keeping database value"}
+    except Exception as e:
+        logger.error(f"Error restoring video count: {e}")
+        return {"count": 0, "error": str(e)}
+
+@app.post("/video-count/init", tags=["Statistics"])
+def initialize_video_count_endpoint(db: Session = Depends(get_db)):
+    """Initialize video count to 104 (admin only)."""
+    from video_count import initialize_video_count
+    try:
+        count = initialize_video_count(db, 104)
+        return {"count": count, "message": f"Video count initialized to {count}"}
+    except Exception as e:
+        logger.error(f"Error initializing video count: {e}")
+        return {"count": 0, "error": str(e)}
+
 if __name__ == "__main__":
     from config import API_HOST, API_PORT, API_RELOAD
     uvicorn.run(app, host=API_HOST, port=API_PORT, reload=API_RELOAD)
-<<<<<<< HEAD
-=======
-
->>>>>>> master

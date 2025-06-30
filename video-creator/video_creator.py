@@ -33,6 +33,7 @@ from config import (
     TTS_MAX_RETRIES,
     TTS_RETRY_DELAY,
     TTS_BACKOFF_MULTIPLIER,
+    DATABASE_URL,
 )
 
 # ElevenLabs API headers
@@ -530,6 +531,17 @@ def render_video(job: DialogJob) -> str:
         for c in visuals:     c.close()
         return out
 
+def increment_video_count_postgres():
+    try:
+        api_url = "http://api:8080/video-count/increment"  # Use Docker service name if running in Docker Compose
+        response = requests.post(api_url)
+        if response.ok:
+            print("📊 Global video count incremented in Postgres.")
+        else:
+            print(f"⚠️ Failed to increment video count in Postgres: {response.text}")
+    except Exception as e:
+        print(f"⚠️ Error incrementing video count in Postgres: {e}")
+
 def on_message(ch, method, props, body):
     job = DialogJob.model_validate_json(body)
     video_generation_successful = False
@@ -576,24 +588,8 @@ def on_message(ch, method, props, body):
         video_generation_successful = True
         print(f"✅ Video successfully created: {video_path}")
         
-        # Increment the global video generation counter
-        try:
-            r = redis.from_url(REDIS_URL, decode_responses=True)
-            new_count = r.incr("video_generation_count")
-            
-            # Also save to backup file for persistence
-            try:
-                backup_file = "/app/data/video_count_backup.txt"
-                os.makedirs(os.path.dirname(backup_file), exist_ok=True)
-                with open(backup_file, 'w') as f:
-                    f.write(str(new_count))
-                print(f"📊 Global video count incremented to: {new_count} (backed up)")
-            except Exception as backup_e:
-                print(f"⚠️ Failed to backup video counter: {backup_e}")
-                print(f"📊 Global video count incremented to: {new_count}")
-                
-        except Exception as e:
-            print(f"⚠️ Failed to increment video counter (non-critical): {e}")
+        # Increment the global video generation counter in Postgres
+        increment_video_count_postgres()
         
     except Exception as e:
         # Video generation failed - update Redis to error status
