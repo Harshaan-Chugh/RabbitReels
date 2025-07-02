@@ -7,6 +7,9 @@ import { useBilling } from "@/contexts/BillingContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import Navbar from "@/components/Navbar";
 
+const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8080';
+const API_BASE_URL = RAW_BASE.endsWith('/api') ? RAW_BASE : `${RAW_BASE}/api`;
+
 function SuccessContent() {
   const { darkMode } = useTheme();
   const { isAuthenticated, authenticatedFetch } = useAuth();
@@ -33,7 +36,6 @@ function SuccessContent() {
 
     const verifyPayment = async () => {
       try {
-        const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8080';
         const response = await fetch(`${API_BASE_URL}/billing/success?session_id=${sessionIdParam}`);
         
         if (response.ok) {
@@ -81,7 +83,6 @@ function SuccessContent() {
     setIsProcessing(true);
     
     try {
-      const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8080';
       const response = await authenticatedFetch(`${API_BASE_URL}/billing/process-payment`, {
         method: 'POST',
         headers: {

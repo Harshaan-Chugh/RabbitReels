@@ -223,12 +223,10 @@ app.add_middleware(
     secret_key=SESSION_SECRET
 )
 
-# Include auth router
-app.include_router(auth_router)
-
 # Include billing router
 from billing import router as billing_router
 app.include_router(billing_router)
+app.include_router(auth_router)
 
 # Mount static files for the login page
 static_dir = os.path.join(os.path.dirname(__file__), "static")

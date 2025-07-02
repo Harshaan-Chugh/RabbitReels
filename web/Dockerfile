@@ -7,6 +7,9 @@ RUN npm ci
 
 COPY web .
 
+# Install any runtime-only deps added after lockfile drift (e.g., clsx)
+RUN npm install clsx@^2.1.1 --save-exact
+
 # Set environment variable for build
 ARG NEXT_PUBLIC_API_BASE=http://localhost:8080
 ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE

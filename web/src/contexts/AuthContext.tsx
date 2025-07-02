@@ -29,7 +29,6 @@ interface AuthContextType {
   loading: boolean;
   authenticatedFetch: (url: string, options?: RequestInit) => Promise<Response>;
   emailLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  emailRegister: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string }>;
   validateToken: (token: string) => Promise<void>;
 }
 
@@ -165,37 +164,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [API_BASE_URL, validateToken]);
 
-  const emailRegister = useCallback(async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password, name }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const token = data.access_token;
-        
-        // Store the token
-        localStorage.setItem('jwt_token', token);
-        
-        // Validate the token and set user state
-        await validateToken(token);
-        
-        return { success: true };
-      } else {
-        const errorData = await response.json().catch(() => ({ detail: 'Registration failed' }));
-        return { success: false, error: Array.isArray(errorData.detail) ? errorData.detail[0].msg : errorData.detail || 'Registration failed' };
-      }
-    } catch (error) {
-      console.error('Email registration error:', error);
-      return { success: false, error: 'Network error. Please try again.' };
-    }
-  }, [API_BASE_URL, validateToken]);
-
   const logout = useCallback(() => {
     localStorage.removeItem('jwt_token');
     setUser(null);
@@ -233,7 +201,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       authenticatedFetch,
       emailLogin,
-      emailRegister,
       validateToken
     }}>
       {children}

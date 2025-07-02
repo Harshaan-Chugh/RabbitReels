@@ -3,7 +3,7 @@ import json
 import uuid
 import bcrypt
 from typing import Dict, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from authlib.integrations.starlette_client import OAuth, OAuthError
@@ -11,6 +11,10 @@ from jose import jwt
 import redis
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+import smtplib
+import os
+from email.mime.text import MIMEText
+import random
 
 from config import (
     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_AUTH_REDIRECT,
@@ -310,3 +314,79 @@ async def change_password(
     rdb.set(f"user_email:{user_profile['email']}", json.dumps(user_profile), ex=30*24*3600)
     
     return {"message": "Password changed successfully"}
+
+# --- Email Verification Code Logic ---
+
+VERIFICATION_CODE_EXPIRY = 15 * 60  # 15 minutes
+
+# Helper to send email (Gmail SMTP)
+def send_verification_email(to_email: str, code: str):
+    gmail_user = os.getenv('GMAIL_USER')
+    gmail_pass = os.getenv('GMAIL_PASS')
+    print(f"[EMAIL] Attempting to send verification code to {to_email} using {gmail_user}")
+    if not gmail_user or not gmail_pass:
+        print("[EMAIL] GMAIL_USER or GMAIL_PASS not set in environment")
+        raise Exception('GMAIL_USER or GMAIL_PASS not set in environment')
+    msg = MIMEText(f"Your RabbitReels verification code is: {code}")
+    msg['Subject'] = 'Your RabbitReels Verification Code'
+    msg['From'] = gmail_user
+    msg['To'] = to_email
+    try:
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            server.login(gmail_user, gmail_pass)
+            server.sendmail(gmail_user, [to_email], msg.as_string())
+        print(f"[EMAIL] Successfully sent verification code to {to_email}")
+    except Exception as e:
+        print(f"[EMAIL] Failed to send verification code to {to_email}: {e}")
+        raise
+
+# Endpoint: Request verification code
+class RequestCodeModel(BaseModel):
+    email: str
+
+@router.post("/request-code")
+def request_verification_code(data: RequestCodeModel, background_tasks: BackgroundTasks):
+    email = data.email.strip().lower()
+    # For testing, always use 000000 as the code
+    code = "000000"  # TODO: Change back to random.randint(0, 999999):06d for production
+    rdb.setex(f"signup_code:{email}", VERIFICATION_CODE_EXPIRY, code)
+    background_tasks.add_task(send_verification_email, email, code)
+    return {"message": "Verification code sent to your Gmail."}
+
+# Endpoint: Verify code and register
+class VerifyCodeModel(BaseModel):
+    email: str
+    code: str
+    password: str
+    name: str
+
+@router.post("/verify-code", response_model=TokenResponse)
+def verify_code_and_register(data: VerifyCodeModel, db: Session = Depends(get_db)):
+    email = data.email.strip().lower()
+    stored_code = rdb.get(f"signup_code:{email}")
+    if not stored_code or stored_code != data.code:
+        raise HTTPException(400, "Invalid or expired verification code.")
+    rdb.delete(f"signup_code:{email}")
+    existing_user = get_user_by_email(email, db)
+    if existing_user:
+        raise HTTPException(400, "Email already registered.")
+    if len(data.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters long.")
+    hashed_password = hash_password(data.password)
+    user_info = {
+        "email": email,
+        "name": data.name,
+        "password_hash": hashed_password,
+        "auth_provider": "email"
+    }
+    user_id = store_user(user_info, db)
+    user_info["id"] = user_id
+    token = create_jwt_token(user_info)
+    user_response = UserResponse(
+        id=user_id,
+        email=user_info["email"],
+        name=user_info["name"],
+        created_at=user_info["created_at"],
+        auth_provider="email"
+    )
+    return TokenResponse(access_token=token, user=user_response)

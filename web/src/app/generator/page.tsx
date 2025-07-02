@@ -18,6 +18,9 @@ type Status =
   | { stage: "done"; jobId: string; downloadUrl: string }
   | { stage: "error"; msg: string };
 
+const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8080';
+const API_BASE_URL = RAW_BASE.endsWith('/api') ? RAW_BASE : `${RAW_BASE}/api`;
+
 export default function Generator() {
   const [theme, setTheme] = useState<"family_guy" | "rick_and_morty">("family_guy");
   const [prompt, setPrompt] = useState("");
@@ -33,7 +36,7 @@ export default function Generator() {
     const id = status.jobId;
     const t = setInterval(async () => {
       try {
-        const r = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/videos/${id}`);
+        const r = await fetch(`${API_BASE_URL}/videos/${id}`);
         if (!r.ok) return; // ignore 404 while queue spins up
         const js = await r.json();
         if (js.status === "done") {
@@ -73,7 +76,7 @@ export default function Generator() {
     const body = { job_id: jobId, prompt, character_theme: theme };
     
     try {
-      const r = await authenticatedFetch(`${process.env.NEXT_PUBLIC_API_BASE}/videos`, {
+      const r = await authenticatedFetch(`${API_BASE_URL}/videos`, {
         method: "POST",
         body: JSON.stringify(body),
       });
@@ -214,7 +217,7 @@ export default function Generator() {
               
               <div className="space-y-4">
                 <a
-                  href={`${process.env.NEXT_PUBLIC_API_BASE}${status.downloadUrl}`}
+                  href={`${API_BASE_URL}${status.downloadUrl}`}
                   className="bg-gradient-to-r from-purple-500 to-purple-600 text-white px-8 py-4 rounded-xl w-full inline-block text-center font-bold text-lg hover:from-purple-600 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl"
                   download>
                   ⬇️ Download MP4

@@ -7,10 +7,55 @@ import { useVideoCounter } from "@/contexts/VideoCounterContext";
 import Image from "next/image";
 import Link from "next/link";
 import CelebrationDialog from './CelebrationDialog';
+import clsx from "clsx";
+import { useTheme } from "@/contexts/ThemeContext";
 
 interface NavbarProps {
   darkMode: boolean;
   toggleDarkMode: () => void;
+}
+
+function CodeInput({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  const { darkMode } = useTheme();
+  const inputs = useRef<(HTMLInputElement | null)[]>([]);
+  // Handle input change
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>, idx: number) => {
+    const val = e.target.value.replace(/\D/g, "");
+    if (!val) return;
+    const newValue = value.substring(0, idx) + val[0] + value.substring(idx + 1);
+    onChange(newValue);
+    if (val && idx < 5) inputs.current[idx + 1]?.focus();
+  };
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, idx: number) => {
+    if (e.key === "Backspace" && !value[idx] && idx > 0) {
+      onChange(value.substring(0, idx - 1) + value.substring(idx));
+      inputs.current[idx - 1]?.focus();
+    }
+  };
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pasted = e.clipboardData.getData("Text").replace(/\D/g, "").slice(0, 6);
+    if (pasted.length === 6) onChange(pasted);
+  };
+  return (
+    <div className="flex gap-2 justify-center mt-4 mb-2">
+      {[...Array(6)].map((_, idx) => (
+        <input
+          key={idx}
+          ref={el => { inputs.current[idx] = el; }}
+          type="text"
+          inputMode="numeric"
+          maxLength={1}
+          value={value[idx] || ""}
+          onChange={e => handleChange(e, idx)}
+          onKeyDown={e => handleKeyDown(e, idx)}
+          onPaste={handlePaste}
+          disabled={disabled}
+          className={clsx("w-10 h-12 text-2xl text-center rounded-md border focus:outline-none font-mono",
+            darkMode ? "bg-gray-700 border-gray-600 text-white" : "bg-gray-100 border-gray-300 text-gray-900")}
+        />
+      ))}
+    </div>
+  );
 }
 
 export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
@@ -20,11 +65,13 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formData, setFormData] = useState({ email: '', password: '', name: '' });
-  const { user, profile, isAuthenticated, login, logout, loading, emailLogin, emailRegister } = useAuth();
-  const { credits, loading: creditsLoading } = useBilling();
+  const { user, profile, isAuthenticated, login, logout, loading, emailLogin, validateToken } = useAuth();
+  const { credits, loading: creditsLoading, refreshBalance } = useBilling();
   const { videoCount } = useVideoCounter();
   const profileMenuRef = useRef<HTMLDivElement>(null);// Close profile menu when clicking outside
   const [showCelebration, setShowCelebration] = useState(false);
+  const [signupStep, setSignupStep] = useState<1 | 2>(1);
+  const [verificationCode, setVerificationCode] = useState("");
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -62,25 +109,55 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
     setFormError(null);
 
     try {
-      let result;
       if (isLogin) {
-        result = await emailLogin(formData.email, formData.password);
-      } else {
-        if (!formData.name.trim()) {
-          setFormError('Name is required for registration');
-          return;
+        const result = await emailLogin(formData.email, formData.password);
+        if (result.success) {
+          setShowAuthModal(false);
+          setFormData({ email: '', password: '', name: '' });
+          setFormError(null);
+          setShowCelebration(true);
+          await refreshBalance?.();
+          window.dispatchEvent(new Event('auth-refresh'));
+        } else if (result.error) {
+          setFormError(result.error);
+        } else {
+          setFormError('Authentication failed');
         }
-        result = await emailRegister(formData.email, formData.password, formData.name);
-      }      if (result.success) {
-        setShowAuthModal(false);
-        setFormData({ email: '', password: '', name: '' });
-        setFormError(null);
-        setShowCelebration(true);
-        window.dispatchEvent(new Event('auth-refresh'));
       } else {
-        setFormError(result.error || 'Authentication failed');
-      }} catch {
-      setFormError('An unexpected error occurred');
+        if (signupStep === 1) {
+          const res = await fetch('/api/auth/request-code', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: formData.email })
+          });
+          if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.detail || data.message || 'Failed to send code');
+          }
+          setSignupStep(2);
+          return;
+        } else {
+          const res = await fetch('/api/auth/verify-code', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: formData.email, password: formData.password, name: formData.name, code: verificationCode })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || data.message || 'Verification failed');
+          const token = data.access_token;
+          localStorage.setItem('jwt_token', token);
+          await validateToken(token);
+          await refreshBalance?.();
+          setShowAuthModal(false);
+          setFormData({ email: '', password: '', name: '' });
+          setVerificationCode('');
+          setSignupStep(1);
+          setShowCelebration(true);
+          window.dispatchEvent(new Event('auth-refresh'));
+        }
+      }
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Error');
     } finally {
       setFormLoading(false);
     }
@@ -321,51 +398,73 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
               or
             </div>            {/* Form */}
             <form onSubmit={handleFormSubmit} className="space-y-4">
-              {!isLogin && (
-                <input
-                  type="text"
-                  name="name"
-                  placeholder="Full Name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  className={`w-full p-3 rounded-lg border ${
-                    darkMode
-                      ? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400'
-                      : 'border-gray-300 bg-white text-gray-900 placeholder-gray-500'
-                  } focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
-                  required={!isLogin}
-                  disabled={formLoading}
-                />
+              {!isLogin && signupStep === 1 && (
+                <>
+                  <input
+                    type="text"
+                    name="name"
+                    placeholder="Full Name"
+                    value={formData.name}
+                    onChange={handleInputChange}
+                    className={`w-full p-3 rounded-lg border ${darkMode? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400':'border-gray-300 bg-white text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                    required
+                    disabled={formLoading}
+                  />
+                  <input
+                    type="email"
+                    name="email"
+                    placeholder="Email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    className={`w-full p-3 rounded-lg border ${darkMode? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400':'border-gray-300 bg-white text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                    required
+                    disabled={formLoading}
+                  />
+                  <input
+                    type="password"
+                    name="password"
+                    placeholder="Password"
+                    value={formData.password}
+                    onChange={handleInputChange}
+                    className={`w-full p-3 rounded-lg border ${darkMode? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400':'border-gray-300 bg-white text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                    required
+                    disabled={formLoading}
+                  />
+                </>
               )}
-              <input
-                type="email"
-                name="email"
-                placeholder="Email"
-                value={formData.email}
-                onChange={handleInputChange}
-                className={`w-full p-3 rounded-lg border ${
-                  darkMode
-                    ? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400'
-                    : 'border-gray-300 bg-white text-gray-900 placeholder-gray-500'
-                } focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
-                required
-                disabled={formLoading}
-              />
-              <input
-                type="password"
-                name="password"
-                placeholder="Password"
-                value={formData.password}
-                onChange={handleInputChange}
-                className={`w-full p-3 rounded-lg border ${
-                  darkMode
-                    ? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400'
-                    : 'border-gray-300 bg-white text-gray-900 placeholder-gray-500'
-                } focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
-                required
-                disabled={formLoading}
-              />
-              
+
+              {isLogin && (
+                <>
+                  <input
+                    type="email"
+                    name="email"
+                    placeholder="Email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    className={`w-full p-3 rounded-lg border ${darkMode? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400':'border-gray-300 bg-white text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                    required
+                    disabled={formLoading}
+                  />
+                  <input
+                    type="password"
+                    name="password"
+                    placeholder="Password"
+                    value={formData.password}
+                    onChange={handleInputChange}
+                    className={`w-full p-3 rounded-lg border ${darkMode? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400':'border-gray-300 bg-white text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                    required
+                    disabled={formLoading}
+                  />
+                </>
+              )}
+
+              {!isLogin && signupStep === 2 && (
+                <>
+                  <div className={`text-sm text-center ${darkMode?'text-gray-300':'text-gray-700'}`}>Enter the 6-digit verification code sent to your email.</div>
+                  <CodeInput value={verificationCode} onChange={setVerificationCode} disabled={formLoading}/>
+                </>
+              )}
+
               {formError && (
                 <div className="text-red-500 text-sm bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
                   {formError}
@@ -380,10 +479,10 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                 {formLoading ? (
                   <div className="flex items-center justify-center space-x-2">
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    <span>{isLogin ? 'Logging in...' : 'Signing up...'}</span>
+                    <span>{isLogin ? 'Logging in...' : signupStep===1 ? 'Send code' : 'Verify'}</span>
                   </div>
                 ) : (
-                  isLogin ? 'Log in' : 'Sign up'
+                  isLogin ? 'Log in' : signupStep===1 ? 'Send verification code' : 'Verify & Sign up'
                 )}
               </button>
             </form>            <div className={`text-center mt-4 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
