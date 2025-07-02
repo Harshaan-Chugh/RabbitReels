@@ -16,7 +16,9 @@ export function VideoCounterProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const fetchVideoCount = async () => {
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/video-count`);
+        const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://rabbitreels.us';
+        const API_BASE_URL = RAW_BASE.endsWith('/api') ? RAW_BASE : `${RAW_BASE}/api`;
+        const response = await fetch(`${API_BASE_URL}/video-count`);
         if (response.ok) {
           const data = await response.json();
           setVideoCount(data.count);
@@ -41,7 +43,9 @@ export function VideoCounterProvider({ children }: { children: ReactNode }) {
 
   const refreshVideoCount = async () => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/video-count`);
+      const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://rabbitreels.us';
+      const API_BASE_URL = RAW_BASE.endsWith('/api') ? RAW_BASE : `${RAW_BASE}/api`;
+      const response = await fetch(`${API_BASE_URL}/video-count`);
       if (response.ok) {
         const data = await response.json();
         setVideoCount(data.count);

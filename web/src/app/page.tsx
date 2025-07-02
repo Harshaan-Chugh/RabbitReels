@@ -5,6 +5,7 @@ import { useVideoCounter } from "@/contexts/VideoCounterContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBilling } from "@/contexts/BillingContext";
 import Navbar from "@/components/Navbar";
+import AnimatedCounter from "@/components/AnimatedCounter";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -42,7 +43,10 @@ export default function Home() {
 
         {/* Subtitle */}
         <p className={`text-xl text-center mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-          {videoCount.toLocaleString()} videos generated 🐰☠️
+          <AnimatedCounter 
+            target={videoCount} 
+            duration={2500}
+          /> videos generated 🐰☠️
         </p>
 
         {/* Main Action Buttons */}

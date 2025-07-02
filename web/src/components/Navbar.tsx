@@ -148,12 +148,12 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
           localStorage.setItem('jwt_token', token);
           await validateToken(token);
           await refreshBalance?.();
-          setShowAuthModal(false);
-          setFormData({ email: '', password: '', name: '' });
+        setShowAuthModal(false);
+        setFormData({ email: '', password: '', name: '' });
           setVerificationCode('');
           setSignupStep(1);
           setShowCelebration(true);
-          window.dispatchEvent(new Event('auth-refresh'));
+        window.dispatchEvent(new Event('auth-refresh'));
         }
       }
     } catch (err) {
@@ -306,21 +306,21 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                   Log in
                 </button>
                 <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => {
-                      setIsLogin(false);
-                      setShowAuthModal(true);
-                      setFormData({ email: '', password: '', name: '' });
-                      setFormError(null);
-                    }}
-                    className={`px-4 py-2 rounded-lg border transition-colors ${
-                      darkMode
-                        ? 'border-gray-600 text-gray-300 hover:bg-gray-800'
-                        : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    Sign up
-                  </button>
+                <button
+                  onClick={() => {
+                    setIsLogin(false);
+                    setShowAuthModal(true);
+                    setFormData({ email: '', password: '', name: '' });
+                    setFormError(null);
+                  }}
+                  className={`px-4 py-2 rounded-lg border transition-colors ${
+                    darkMode
+                      ? 'border-gray-600 text-gray-300 hover:bg-gray-800'
+                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  Sign up
+                </button>
                   <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ml-1 ${darkMode ? 'bg-pink-900/60 text-pink-200' : 'bg-pink-100 text-pink-600'}`}>🎁 1 free video credit for new users!</span>
                 </div>
               </>
@@ -400,12 +400,12 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
             <form onSubmit={handleFormSubmit} className="space-y-4">
               {!isLogin && signupStep === 1 && (
                 <>
-                  <input
-                    type="text"
-                    name="name"
-                    placeholder="Full Name"
-                    value={formData.name}
-                    onChange={handleInputChange}
+                <input
+                  type="text"
+                  name="name"
+                  placeholder="Full Name"
+                  value={formData.name}
+                  onChange={handleInputChange}
                     className={`w-full p-3 rounded-lg border ${darkMode? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400':'border-gray-300 bg-white text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                     required
                     disabled={formLoading}
@@ -428,33 +428,33 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                     onChange={handleInputChange}
                     className={`w-full p-3 rounded-lg border ${darkMode? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400':'border-gray-300 bg-white text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                     required
-                    disabled={formLoading}
-                  />
+                  disabled={formLoading}
+                />
                 </>
               )}
 
               {isLogin && (
                 <>
-                  <input
-                    type="email"
-                    name="email"
-                    placeholder="Email"
-                    value={formData.email}
-                    onChange={handleInputChange}
+              <input
+                type="email"
+                name="email"
+                placeholder="Email"
+                value={formData.email}
+                onChange={handleInputChange}
                     className={`w-full p-3 rounded-lg border ${darkMode? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400':'border-gray-300 bg-white text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
-                    required
-                    disabled={formLoading}
-                  />
-                  <input
-                    type="password"
-                    name="password"
-                    placeholder="Password"
-                    value={formData.password}
-                    onChange={handleInputChange}
+                required
+                disabled={formLoading}
+              />
+              <input
+                type="password"
+                name="password"
+                placeholder="Password"
+                value={formData.password}
+                onChange={handleInputChange}
                     className={`w-full p-3 rounded-lg border ${darkMode? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400':'border-gray-300 bg-white text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
-                    required
-                    disabled={formLoading}
-                  />
+                required
+                disabled={formLoading}
+              />
                 </>
               )}
 
@@ -464,7 +464,7 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                   <CodeInput value={verificationCode} onChange={setVerificationCode} disabled={formLoading}/>
                 </>
               )}
-
+              
               {formError && (
                 <div className="text-red-500 text-sm bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
                   {formError}

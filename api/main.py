@@ -169,6 +169,19 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize database: {e}")
         raise  # Database is critical, fail startup if it can't connect
     
+    # Initialize video count in database if it doesn't exist
+    try:
+        from video_count import initialize_video_count
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            count = initialize_video_count(db, 104)
+            logger.info(f"Video count initialized/verified: {count}")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Failed to initialize video count: {e}")
+    
     # Initialize RabbitMQ connection
     try:
         get_rabbit_channel()

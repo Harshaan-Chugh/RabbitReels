@@ -533,12 +533,14 @@ def render_video(job: DialogJob) -> str:
 
 def increment_video_count_postgres():
     try:
-        api_url = "http://api:8080/video-count/increment"  # Use Docker service name if running in Docker Compose
+        api_url = "http://api:8080/api/video-count/increment"  # Include /api prefix
         response = requests.post(api_url)
         if response.ok:
-            print("📊 Global video count incremented in Postgres.")
+            result = response.json()
+            count = result.get('count', 'unknown')
+            print(f"📊 Global video count incremented to {count} in Postgres.")
         else:
-            print(f"⚠️ Failed to increment video count in Postgres: {response.text}")
+            print(f"⚠️ Failed to increment video count in Postgres: {response.status_code} {response.text}")
     except Exception as e:
         print(f"⚠️ Error incrementing video count in Postgres: {e}")
 
