@@ -1,5 +1,3 @@
-"""Configuration settings for the RabbitReels API service."""
-
 import os
 import sys
 from dotenv import load_dotenv  # type: ignore

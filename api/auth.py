@@ -1,17 +1,17 @@
 import time
 import json
 import uuid
-import bcrypt
+import bcrypt #type: ignore
 from typing import Dict, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks
-from fastapi.responses import RedirectResponse, HTMLResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from authlib.integrations.starlette_client import OAuth, OAuthError
-from jose import jwt
-import redis
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
-import smtplib
+from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks #type: ignore
+from fastapi.responses import RedirectResponse, HTMLResponse #type: ignore
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials #type: ignore
+from authlib.integrations.starlette_client import OAuth, OAuthError #type: ignore
+from jose import jwt #type: ignore
+import redis #type: ignore
+from pydantic import BaseModel #type: ignore
+from sqlalchemy.orm import Session #type: ignore
+import smtplib #type: ignore
 import os
 from email.mime.text import MIMEText
 import random
@@ -28,17 +28,23 @@ security = HTTPBearer()
 
 rdb = redis.from_url(REDIS_URL, decode_responses=True)
 def hash_password(password: str) -> str:
-    """Hash a password using bcrypt."""
+    """
+    Hash a password using bcrypt.
+    """
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
     return hashed.decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash."""
+    """
+    Verify a password against its hash.
+    """
     return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 def create_jwt_token(user_data: Dict) -> str:
-    """Create a JWT token for a user."""
+    """
+    Create a JWT token for a user.
+    """
     payload = {
         "sub": user_data["id"],
         "email": user_data["email"],
@@ -48,11 +54,13 @@ def create_jwt_token(user_data: Dict) -> str:
         "exp": int(time.time()) + JWT_EXPIRES_SEC,
         "jti": str(uuid.uuid4()),
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+    return jwt.encode(payload, JWT_SECRET or "", algorithm=JWT_ALG)
 
 def get_user_by_email(email: str, db: Session = None) -> Optional[Dict]:
-    """Get user data by email from database and Redis cache."""
-    # First try Redis cache
+    """
+    Get user data by email from database and Redis cache.
+    """
+    # Try Redis cache
     user_data = rdb.get(f"user_email:{email}")
     if user_data:
         return json.loads(user_data)
@@ -78,7 +86,9 @@ def get_user_by_email(email: str, db: Session = None) -> Optional[Dict]:
     return None
 
 def store_user(user_data: Dict, db: Session = None) -> str:
-    """Store user data in both database and Redis cache."""
+    """
+    Store user data in both database and Redis cache.
+    """
     user_id = str(uuid.uuid4())
     user_data["id"] = user_id
     user_data["created_at"] = int(time.time())
@@ -100,7 +110,7 @@ def store_user(user_data: Dict, db: Session = None) -> str:
         )
         db.add(db_user)
         
-        # Grant 1 credit to new users
+        # Initialize users with 1 credit
         credit_balance = CreditBalance(user_id=user_id, credits=1)
         db.add(credit_balance)
         
@@ -128,7 +138,9 @@ oauth.register(
 
 @router.post("/register", response_model=TokenResponse)
 async def register_user(user_data: UserRegistration, db: Session = Depends(get_db)):
-    """Register a new user with email and password."""
+    """
+    Register a new user with email and password.
+    """
     existing_user = get_user_by_email(user_data.email, db)
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -160,7 +172,9 @@ async def register_user(user_data: UserRegistration, db: Session = Depends(get_d
 
 @router.post("/login", response_model=TokenResponse)
 async def login_user(login_data: UserLogin, db: Session = Depends(get_db)):
-    """Login with email and password."""
+    """
+    Login with email and password.
+    """
     user = get_user_by_email(login_data.email, db)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -182,13 +196,17 @@ async def login_user(login_data: UserLogin, db: Session = Depends(get_db)):
 
 @router.get("/login")
 async def login(request: Request):
-    """Redirect user to Google OAuth login page."""
+    """
+    Redirect user to Google OAuth login page.
+    """
     redirect_uri = GOOGLE_AUTH_REDIRECT
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @router.get("/callback")
 async def auth_callback(request: Request, db: Session = Depends(get_db)):
-    """Handle Google OAuth callback and issue JWT token."""
+    """
+    Handle Google OAuth callback and issue JWT token.
+    """
     print("DEBUG: Callback endpoint hit!")
     try:
         token = await oauth.google.authorize_access_token(request)
@@ -246,19 +264,23 @@ async def auth_callback(request: Request, db: Session = Depends(get_db)):
     return HTMLResponse(content=html_content, status_code=200)
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict:
-    """Extract and verify JWT token from Authorization header."""
+    """
+    Extract and verify JWT token from Authorization header.
+    """
     token = credentials.credentials
     
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+        payload = jwt.decode(token, JWT_SECRET or "", algorithms=[JWT_ALG])
         return payload
-    except jwt.ExpiredSignatureError:
+    except jwt.ExpiredSignatureError: #type: ignore
         raise HTTPException(401, "Token has expired")
-    except jwt.JWTError:
+    except jwt.JWTError: #type: ignore
         raise HTTPException(401, "Token is invalid")
 
 def get_current_user_profile(current_user: Dict = Depends(get_current_user)) -> Dict:
-    """Get full user profile from Redis using the JWT subject."""
+    """
+    Get full user profile from Redis using the JWT subject.
+    """
     user_id = current_user["sub"]
     user_data = rdb.get(f"user:{user_id}")
     
@@ -268,17 +290,23 @@ def get_current_user_profile(current_user: Dict = Depends(get_current_user)) -> 
     return json.loads(user_data)
 @router.get("/me")
 async def get_me(user: Dict = Depends(get_current_user)):
-    """Get current user's JWT claims."""
+    """
+    Get current user's JWT claims.
+    """
     return {"user": user, "message": "You are authenticated!"}
 
 @router.get("/profile")
 async def get_profile(profile: Dict = Depends(get_current_user_profile)):
-    """Get current user's full profile from Redis."""
+    """
+    Get current user's full profile from Redis.
+    """
     return {"profile": profile}
 
 @router.post("/logout")
 async def logout(user: Dict = Depends(get_current_user)):
-    """Logout endpoint (client should discard the JWT)."""
+    """
+    Logout endpoint (client should discard the JWT).
+    """
     return {"message": "Logged out successfully. Please discard your token."}
 
 class ChangePasswordRequest(BaseModel):
@@ -290,7 +318,9 @@ async def change_password(
     request: ChangePasswordRequest,
     current_user: Dict = Depends(get_current_user)
 ):
-    """Change user password (only for email auth users)."""
+    """
+    Change user password (only for email auth users).
+    """
     user_id = current_user["sub"]
     user_data = rdb.get(f"user:{user_id}")
     
@@ -315,9 +345,7 @@ async def change_password(
     
     return {"message": "Password changed successfully"}
 
-# --- Email Verification Code Logic ---
-
-VERIFICATION_CODE_EXPIRY = 15 * 60  # 15 minutes
+VERIFICATION_CODE_EXPIRY = 15 * 60
 
 # Helper to send email (Gmail SMTP)
 def send_verification_email(to_email: str, code: str):
@@ -347,8 +375,7 @@ class RequestCodeModel(BaseModel):
 @router.post("/request-code")
 def request_verification_code(data: RequestCodeModel, background_tasks: BackgroundTasks):
     email = data.email.strip().lower()
-    # For testing, always use 000000 as the code
-    code = "000000"  # TODO: Change back to random.randint(0, 999999):06d for production
+    code = f"{random.randint(0, 999999):06d}"
     rdb.setex(f"signup_code:{email}", VERIFICATION_CODE_EXPIRY, code)
     background_tasks.add_task(send_verification_email, email, code)
     return {"message": "Verification code sent to your Gmail."}

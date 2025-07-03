@@ -12,7 +12,6 @@ const VideoCounterContext = createContext<VideoCounterContextType | undefined>(u
 export function VideoCounterProvider({ children }: { children: ReactNode }) {
   const [videoCount, setVideoCount] = useState(0);
   
-  // Load video count from API on mount
   useEffect(() => {
     const fetchVideoCount = async () => {
       try {
@@ -25,7 +24,6 @@ export function VideoCounterProvider({ children }: { children: ReactNode }) {
         }
       } catch (error) {
         console.error('Failed to fetch video count:', error);
-        // Fallback to localStorage if API is not available
         const savedCount = localStorage.getItem('videoCount');
         if (savedCount) {
           setVideoCount(parseInt(savedCount, 10));
@@ -36,7 +34,6 @@ export function VideoCounterProvider({ children }: { children: ReactNode }) {
     fetchVideoCount();
   }, []);
 
-  // Save to localStorage as backup
   useEffect(() => {
     localStorage.setItem('videoCount', videoCount.toString());
   }, [videoCount]);
@@ -52,7 +49,6 @@ export function VideoCounterProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.error('Failed to refresh video count:', error);
-      // Keep current count if refresh fails
     }
   };
 

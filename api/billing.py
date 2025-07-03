@@ -1,14 +1,11 @@
 """Billing and payment processing with Stripe."""
 
-import os
 import logging
-import stripe
-import time
-import json
-from typing import Dict, Any, Optional
-from fastapi import APIRouter, HTTPException, Depends, Request
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
+import stripe #type: ignore
+from typing import Dict, Any
+from fastapi import APIRouter, HTTPException, Depends, Request #type: ignore
+from pydantic import BaseModel #type: ignore
+from sqlalchemy.orm import Session #type: ignore
 
 from auth import get_current_user
 from database import get_db, CreditBalance, CreditTransaction
@@ -17,7 +14,6 @@ from config import (
     STRIPE_WEBHOOK_SECRET,
     FRONTEND_URL,
     CREDIT_PRICES,
-    REDIS_URL,
     ENVIRONMENT
 )
 
@@ -31,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/billing", tags=["Billing"])
 
-# Pydantic models for request/response
+# Pydantic models
 class CheckoutRequest(BaseModel):
     credits: int
 
@@ -50,8 +46,10 @@ class ProcessPaymentRequest(BaseModel):
     session_id: str
 
 def get_redis():
-    """Get Redis client - import here to avoid circular imports."""
-    import redis
+    """
+    Get Redis client - import here to avoid circular imports.
+    """
+    import redis #type: ignore
     from config import REDIS_URL
     try:
         return redis.from_url(REDIS_URL, decode_responses=True)
@@ -60,21 +58,25 @@ def get_redis():
         return None
 
 def get_user_credits(user_id: str, db: Session) -> int:
-    """Get user's current credit balance from database."""
+    """
+    Get user's current credit balance from database.
+    """
     try:
         balance = db.query(CreditBalance).filter(CreditBalance.user_id == user_id).first()
-        return balance.credits if balance else 0  # type: ignore
+        return balance.credits if balance else 0
     except Exception as e:
         logger.error(f"Error getting user credits for {user_id}: {e}")
         return 0
 
 def grant_credits(user_id: str, credits: int, db: Session) -> None:
-    """Grant credits to a user in database."""
+    """
+    Grant credits to a user in database.
+    """
     try:
         # Get or create credit balance
         balance = db.query(CreditBalance).filter(CreditBalance.user_id == user_id).first()
         if balance:
-            balance.credits += credits  # type: ignore
+            balance.credits += credits
         else:
             balance = CreditBalance(user_id=user_id, credits=credits)
             db.add(balance)
@@ -95,19 +97,20 @@ def grant_credits(user_id: str, credits: int, db: Session) -> None:
         raise
 
 def spend_credit(user_id: str, db: Session) -> None:
-    """Spend one credit from user's balance in database."""
+    """
+    Spend one credit from user's balance in database.
+    """
     try:
         balance = db.query(CreditBalance).filter(CreditBalance.user_id == user_id).first()
         
-        if not balance or balance.credits <= 0:  # type: ignore
+        if not balance or balance.credits <= 0:
             raise HTTPException(
                 status_code=402,
                 detail="Insufficient credits. Please purchase more credits to continue."
             )
         
-        balance.credits -= 1  # type: ignore
+        balance.credits -= 1
         
-        # Log the transaction using database model
         transaction = CreditTransaction(
             user_id=user_id,
             amount=-1,
@@ -129,8 +132,10 @@ async def get_balance(
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get user's current credit balance."""
-    user_id = str(current_user["sub"])  # JWT uses "sub" for user ID
+    """
+    Get user's current credit balance.
+    """
+    user_id = str(current_user["sub"])
     credits = get_user_credits(user_id, db)
     return BalanceResponse(credits=credits)
 
@@ -139,7 +144,9 @@ async def create_checkout_session(
     request: CheckoutRequest,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Create a Stripe checkout session for purchasing credits."""
+    """
+    Create a Stripe checkout session for purchasing credits.
+    """
     if not STRIPE_SECRET_KEY:
         raise HTTPException(
             status_code=500,
@@ -153,13 +160,11 @@ async def create_checkout_session(
         )
     
     try:
-        # Get user email safely
         user_email = current_user.get("email")
         if not user_email:
             logger.warning(f"No email found for user {current_user.get('sub')}")
-            user_email = "customer@example.com"  # Fallback email
-        
-        # Create checkout session
+            user_email = "customer@example.com"
+
         session = stripe.checkout.Session.create(
             mode="payment",
             payment_method_types=["card"],
@@ -187,7 +192,6 @@ async def create_checkout_session(
         
         logger.info(f"Created checkout session for user {current_user['sub']}: {session.id}")
         
-        # Ensure session.url is not None
         if not session.url:
             raise HTTPException(status_code=500, detail="Failed to create checkout session URL")
             
@@ -214,7 +218,6 @@ async def process_payment_manually(
         raise HTTPException(status_code=500, detail="Stripe is not configured")
     
     try:
-        # Retrieve the session from Stripe
         session = stripe.checkout.Session.retrieve(request.session_id)
         
         if session.payment_status != "paid":
@@ -223,14 +226,12 @@ async def process_payment_manually(
                 detail=f"Payment not completed. Status: {session.payment_status}"
             )
         
-        # Verify this session belongs to the current user
         if session.client_reference_id != str(current_user["sub"]):
             raise HTTPException(
                 status_code=403,
                 detail="Session does not belong to current user"
             )
         
-        # Extract credits from metadata
         metadata = session.metadata or {}
         credits = int(metadata.get("credits", 0))
         
@@ -240,7 +241,6 @@ async def process_payment_manually(
                 detail="Invalid credits amount in session"
             )
         
-        # Check if already processed (to prevent double crediting)
         user_id = str(current_user["sub"])
         r = get_redis()
         processed_key = f"processed_session:{request.session_id}"
@@ -251,12 +251,10 @@ async def process_payment_manually(
                 detail="Payment already processed"
             )
         
-        # Grant credits
         grant_credits(user_id, credits, db)
         
-        # Mark as processed
         if r:
-            r.setex(processed_key, 86400, "1")  # Expire in 24 hours
+            r.setex(processed_key, 86400, "1")
         
         logger.info(f"Manually processed payment for user {user_id}: {credits} credits")
         
@@ -289,7 +287,6 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Missing signature")
     
     try:
-        # Verify webhook signature
         event = stripe.Webhook.construct_event(
             payload, sig_header, STRIPE_WEBHOOK_SECRET
         )
@@ -300,22 +297,18 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         logger.error(f"Invalid signature: {e}")
         raise HTTPException(status_code=400, detail="Invalid signature")
     
-    # Handle the event
     try:
         if event["type"] == "checkout.session.completed":
             session = event["data"]["object"]
             
-            # Extract user info and credits from session
             user_id = session.get("client_reference_id")
             credits = int(session.get("metadata", {}).get("credits", 0))
             session_id = session.get("id")
             
-            if user_id and credits > 0:
-                # Check if we've already processed this session to avoid double crediting
+            if user_id and credits > 0: 
                 r = get_redis()
                 if r is None:
                     logger.error("Redis connection failed, cannot check for duplicate processing")
-                    # Still grant credits if Redis is down
                     grant_credits(user_id, credits, db)
                 else:
                     processed_key = f"processed_session:{session_id}"
@@ -323,27 +316,22 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                     if processed_value is not None and str(processed_value) == "1":
                         logger.info(f"Webhook: Session {session_id} already processed, skipping")
                     else:
-                        # Grant credits to user
                         grant_credits(user_id, credits, db)
-                        # Mark session as processed (expires in 24 hours)
                         r.setex(processed_key, 86400, "1")
                         logger.info(f"Webhook: Granted {credits} credits to user {user_id}")
             else:
                 logger.error(f"Webhook: Missing user_id or credits in session {session.get('id')}")
         
         elif event["type"] == "checkout.session.async_payment_succeeded":
-            # Handle async payments (like SEPA, etc.)
             session = event["data"]["object"]
             user_id = session.get("client_reference_id")
             credits = int(session.get("metadata", {}).get("credits", 0))
             session_id = session.get("id")
             
             if user_id and credits > 0:
-                # Check if we've already processed this session
                 r = get_redis()
                 if r is None:
                     logger.error("Redis connection failed, cannot check for duplicate processing")
-                    # Still grant credits if Redis is down
                     grant_credits(user_id, credits, db)
                 else:
                     processed_key = f"processed_session:{session_id}"
@@ -352,12 +340,10 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                         logger.info(f"Webhook: Async session {session_id} already processed, skipping")
                     else:
                         grant_credits(user_id, credits, db)
-                        # Mark session as processed (expires in 24 hours)
                         r.setex(processed_key, 86400, "1")
                         logger.info(f"Webhook: Async payment succeeded, granted {credits} credits to user {user_id}")
         
         elif event["type"] == "checkout.session.async_payment_failed":
-            # Handle failed async payments
             session = event["data"]["object"]
             logger.warning(f"Webhook: Async payment failed for session {session.get('id')}")
         
@@ -377,12 +363,10 @@ async def payment_success(session_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Missing session ID")
     
     try:
-        # Retrieve the session to get details
         session = stripe.checkout.Session.retrieve(session_id)
         logger.info(f"Retrieved session: {session_id}, payment_status: {session.payment_status}")
         
         if session.payment_status == "paid":
-            # Safely access metadata
             metadata = session.metadata or {}
             credits = int(metadata.get("credits", 0))
             user_id = session.get("client_reference_id")
@@ -392,16 +376,12 @@ async def payment_success(session_id: str, db: Session = Depends(get_db)):
                 
             logger.info(f"Payment is paid. Credits: {credits}, User ID: {user_id}")
             
-            # Check if credits were already granted via webhook
             current_credits = get_user_credits(user_id, db)
             logger.info(f"Current credits for user {user_id}: {current_credits}")
             
-            # In development, check if we need manual processing
-            # We check if this session was already processed by looking for a recent transaction
             needs_manual_processing = False
             if ENVIRONMENT == "development":
                 logger.info(f"Development mode: checking for manual processing needed")
-                # Check if there's a recent transaction for this amount
                 recent_transaction = db.query(CreditTransaction).filter(
                     CreditTransaction.user_id == user_id,
                     CreditTransaction.amount == credits,
@@ -419,7 +399,6 @@ async def payment_success(session_id: str, db: Session = Depends(get_db)):
             
             logger.info(f"needs_manual_processing: {needs_manual_processing}")
             
-            # Determine response based on whether manual processing is needed
             if needs_manual_processing:
                 return {
                     "status": "needs_manual_processing",
@@ -457,16 +436,16 @@ async def payment_cancel():
         "message": "Payment was cancelled. You can try again anytime."
     }
 
-# Helper endpoint to get credit prices for frontend
 @router.get("/prices")
 async def get_credit_prices():
-    """Get available credit packages and prices."""
+    """
+    Get available credit packages and prices.
+    """
     prices = []
     for credits, price_cents in CREDIT_PRICES.items():
         price_dollars = price_cents / 100
         savings = 0
         if credits > 2:
-            # Use 2-credit package as baseline for savings calculation (50 cents per credit)
             single_price = credits * (CREDIT_PRICES[2] / 2 / 100)
             savings = round(((single_price - price_dollars) / single_price) * 100)
         
@@ -475,7 +454,7 @@ async def get_credit_prices():
             "price_cents": price_cents,
             "price_dollars": price_dollars,
             "savings_percent": savings,
-            "popular": credits == 10  # Mark 10-credit pack as popular
+            "popular": credits == 10
         })
     
     return {"packages": prices}

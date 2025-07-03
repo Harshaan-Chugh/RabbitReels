@@ -12,17 +12,15 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [darkMode, setDarkMode] = useState(true);
 
-  // Load dark mode preference from localStorage on mount
   useEffect(() => {
     const stored = localStorage.getItem('darkMode');
     if (stored === null) {
-      setDarkMode(true); // Default to dark mode if no preference
+      setDarkMode(true);
     } else {
       setDarkMode(stored === 'true');
     }
   }, []);
-
-  // Apply dark mode to document and save to localStorage whenever it changes
+  
   useEffect(() => {
     localStorage.setItem('darkMode', darkMode.toString());
     if (darkMode) {

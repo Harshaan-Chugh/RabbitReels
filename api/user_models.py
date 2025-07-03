@@ -1,5 +1,4 @@
-from pydantic import BaseModel, EmailStr
-from typing import Optional
+from pydantic import BaseModel, EmailStr #type: ignore
 
 class UserRegistration(BaseModel):
     email: EmailStr
@@ -15,7 +14,7 @@ class UserResponse(BaseModel):
     email: str
     name: str
     created_at: int
-    auth_provider: str  # "email" or "google"
+    auth_provider: str
 
 class TokenResponse(BaseModel):
     access_token: str

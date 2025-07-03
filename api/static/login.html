@@ -101,17 +101,14 @@
     <script>
         const API_BASE = 'http://localhost:8080';
         
-        // Check if we're on the success page with a token
         const urlParams = new URLSearchParams(window.location.search);
         const token = urlParams.get('token');
         
         if (token) {
             localStorage.setItem('jwt', token);
-            // Clean up URL
             window.history.replaceState({}, document.title, window.location.pathname);
         }
 
-        // Check if user is already logged in
         const storedToken = localStorage.getItem('jwt');
         if (storedToken) {
             showUserSection(storedToken);
@@ -169,7 +166,6 @@
                     document.getElementById('login-section').style.display = 'none';
                     document.getElementById('user-section').style.display = 'block';
                 } else {
-                    // Token is invalid, remove it
                     localStorage.removeItem('jwt');
                 }
             } catch (error) {

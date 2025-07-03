@@ -30,19 +30,17 @@ export default function Generator() {
   const { credits, refreshBalance } = useBilling();
   const { refreshVideoCount } = useVideoCounter();
   const router = useRouter();
-  // Polling hook -------------------------------------------------------
+
   useEffect(() => {
     if (status.stage !== "queued" && status.stage !== "rendering") return;
     const id = status.jobId;
     const t = setInterval(async () => {
       try {
         const r = await fetch(`${API_BASE_URL}/videos/${id}`);
-        if (!r.ok) return; // ignore 404 while queue spins up
+        if (!r.ok) return;
         const js = await r.json();
         if (js.status === "done") {
           setStatus({ stage: "done", jobId: id, downloadUrl: js.download_url });
-          // Video count is automatically incremented by the video creator service
-          // Refresh the count display to show the updated number
           refreshVideoCount();
           clearInterval(t);
         } else if (js.status === "error") {
@@ -56,7 +54,7 @@ export default function Generator() {
       }
     }, 5000);
     return () => clearInterval(t);
-  }, [status]);  // Submit -------------------------------------------------------------
+  }, [status]);
   const handleCreate = async () => {
     if (!prompt.trim()) return alert("Enter a prompt!");
     
@@ -89,16 +87,13 @@ export default function Generator() {
         }
         return alert(`Error: ${errorData.detail || "Failed to create video"}`);
       }
-      // Refresh balance to show updated credit count
       refreshBalance();
-      // Don't increment here anymore - wait for completion
       setStatus({ stage: "queued", jobId });
     } catch (error) {
       alert(`Network error: ${error}`);
     }
   };
 
-  // Render -------------------------------------------------------------
   return (
     <div className={`min-h-screen transition-colors ${darkMode ? 'bg-gradient-to-br from-gray-900 to-gray-800' : 'bg-gradient-to-br from-blue-50 to-purple-50'}`}>
       <Navbar darkMode={darkMode} toggleDarkMode={toggleDarkMode} />

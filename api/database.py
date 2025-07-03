@@ -1,8 +1,8 @@
 """Database models and configuration for RabbitReels."""
 
-from sqlalchemy import create_engine, Column, String, Integer, DateTime, Text, Boolean
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine, Column, String, Integer, DateTime, Text #type: ignore
+from sqlalchemy.ext.declarative import declarative_base #type: ignore
+from sqlalchemy.orm import sessionmaker #type: ignore
 from datetime import datetime
 import uuid
 import sys

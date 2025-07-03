@@ -149,6 +149,8 @@ def on_message(ch, method, props, body):
 def main():
     while True:
         try:
+            if RABBIT_URL is None:
+                raise ValueError("RABBIT_URL environment variable is not set")
             connection_params = pika.URLParameters(RABBIT_URL)
             connection_params.heartbeat = 30
             connection_params.blocked_connection_timeout = 300

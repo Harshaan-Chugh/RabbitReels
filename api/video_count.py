@@ -1,6 +1,6 @@
 """Video count management using PostgreSQL."""
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session #type: ignore
 from database import SystemStats
 import logging
 

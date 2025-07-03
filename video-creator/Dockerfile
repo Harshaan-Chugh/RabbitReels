@@ -4,7 +4,6 @@ RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         imagemagick ghostscript fonts-liberation fonts-dejavu-core ffmpeg \
         fontconfig fonts-liberation2 fonts-dejavu fonts-dejavu-extra && \
-    # Fix ImageMagick security policy for MoviePy text rendering
     sed -i 's/rights="none" pattern="TEXT"/rights="read|write" pattern="TEXT"/' /etc/ImageMagick-6/policy.xml && \
     sed -i 's/rights="none" pattern="LABEL"/rights="read|write" pattern="LABEL"/' /etc/ImageMagick-6/policy.xml && \
     sed -i 's/rights="none" pattern="CAPTION"/rights="read|write" pattern="CAPTION"/' /etc/ImageMagick-6/policy.xml && \

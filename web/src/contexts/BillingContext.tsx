@@ -47,7 +47,6 @@ export function BillingProvider({ children }: { children: ReactNode }) {
   const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8080';
   const API_BASE_URL = RAW_BASE.endsWith('/api') ? RAW_BASE : `${RAW_BASE}/api`;
 
-  // Initialize Stripe
   useEffect(() => {
     const initStripe = async () => {
       const stripeInstance = await getStripe();
@@ -56,7 +55,6 @@ export function BillingProvider({ children }: { children: ReactNode }) {
     initStripe();
   }, []);
 
-  // Load credit packages on mount
   useEffect(() => {
     const loadCreditPackages = async () => {
       try {
@@ -102,7 +100,6 @@ export function BillingProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated, authenticatedFetch, API_BASE_URL]);
 
-  // Load user's credit balance when authenticated
   useEffect(() => {
     if (isAuthenticated) {
       refreshBalance();
@@ -118,7 +115,6 @@ export function BillingProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      // Create checkout session
       const response = await authenticatedFetch(`${API_BASE_URL}/billing/checkout-session`, {
         method: 'POST',
         headers: {
@@ -134,7 +130,6 @@ export function BillingProvider({ children }: { children: ReactNode }) {
 
       const { url } = await response.json();
       
-      // Redirect to Stripe Checkout
       window.location.href = url;
     } catch (error) {
       console.error('Error purchasing credits:', error);
