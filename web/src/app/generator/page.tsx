@@ -98,19 +98,19 @@ export default function Generator() {
     <div className={`min-h-screen transition-colors ${darkMode ? 'bg-gradient-to-br from-gray-900 to-gray-800' : 'bg-gradient-to-br from-blue-50 to-purple-50'}`}>
       <Navbar darkMode={darkMode} toggleDarkMode={toggleDarkMode} />
       
-      <main className="container mx-auto px-4 py-20 max-w-4xl">        <div className="text-center space-y-4 mb-8">
-          <h1 className={`text-5xl font-bold bg-gradient-to-r ${darkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent flex items-center justify-center gap-4`}>
+      <main className="container mx-auto safe-area-inset pt-32 sm:pt-32 pb-20 max-w-4xl" style={{ paddingTop: 'max(128px, calc(128px + env(safe-area-inset-top)))' }}>        <div className="text-center space-y-4 mb-6 sm:mb-8">
+          <h1 className={`text-3xl sm:text-5xl font-bold bg-gradient-to-r ${darkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4`}>
             <Link href="/" className="hover:scale-110 transition-transform">
               <Image
                 src="/rabbit_reels_logo.png"
                 alt="RabbitReels Logo"
-                width={60}
-                height={60}
-                className="rounded-full"
+                width={50}
+                height={50}
+                className="rounded-full sm:w-[60px] sm:h-[60px]"
               />
             </Link>
-            RabbitReels Generator
-          </h1>          <p className={`text-xl ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+            <span className="text-center">RabbitReels Generator</span>
+          </h1>          <p className={`text-lg sm:text-xl px-4 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
             Create AI-powered short videos with your favorite characters
           </p>
           {isAuthenticated && (
@@ -128,7 +128,7 @@ export default function Generator() {
           )}
         </div>
 
-        <div className={`rounded-xl p-8 shadow-xl space-y-8 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+        <div className={`rounded-xl p-4 sm:p-8 shadow-xl space-y-6 sm:space-y-8 card ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
           <div className="space-y-3">
             <label className={`block text-lg font-semibold ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
               Choose Characters
@@ -141,12 +141,12 @@ export default function Generator() {
               What should they explain?
             </label>
             <textarea
-              className={`w-full border p-5 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-lg ${
+              className={`w-full border p-4 sm:p-5 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-base sm:text-lg ${
                 darkMode 
                   ? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400' 
                   : 'border-gray-300 bg-white text-gray-900 placeholder-gray-500'
               }`}
-              rows={5}
+              rows={4}
               placeholder="e.g., Explain quantum entanglement in simple terms, or How do neural networks work?"
               value={prompt}
               onChange={e => setPrompt(e.target.value)}
@@ -157,7 +157,7 @@ export default function Generator() {
             <button
               onClick={handleCreate}
               disabled={!prompt.trim()}
-              className="bg-gradient-to-r from-green-500 to-green-600 text-white px-10 py-5 rounded-xl w-full font-bold text-xl hover:from-green-600 hover:to-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl">
+              className="bg-gradient-to-r from-green-500 to-green-600 text-white px-6 sm:px-10 py-4 sm:py-5 rounded-xl w-full font-bold text-lg sm:text-xl hover:from-green-600 hover:to-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl min-h-[56px]">
               🐰 Create Video
             </button>
           )}

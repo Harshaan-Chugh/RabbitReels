@@ -181,9 +181,9 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
 
   return (
     <>
-      <nav className={`fixed top-0 left-0 right-0 z-50 ${darkMode ? 'bg-gray-900/95' : 'bg-white/95'} backdrop-blur-sm border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-        <div className="container mx-auto px-4 py-3 flex items-center justify-between">          {/* Logo/Brand */}
-          <Link href="/" className="flex items-center space-x-2 hover:opacity-80 transition-opacity">
+      <nav className={`fixed top-0 left-0 right-0 z-50 ${darkMode ? 'bg-gray-900/95' : 'bg-white/95'} backdrop-blur-sm border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'} safe-area-top`}>
+        <div className="container mx-auto safe-area-inset py-2 flex items-center justify-between">          {/* Logo/Brand */}
+          <Link href="/" className="flex items-center space-x-2 hover:opacity-80 transition-opacity min-h-[44px]">
             <Image 
               src="/rabbit_reels_logo.png" 
               alt="RabbitReels Logo" 
@@ -191,11 +191,11 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
               height={32}
               className="rounded"
             />
-            <span className={`text-xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+            <span className={`text-lg sm:text-xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
               RabbitReels
             </span>
-          </Link>{/* Right side buttons */}
-          <div className="flex items-center space-x-4">
+          </Link>          {/* Right side buttons */}
+          <div className="flex items-center space-x-2 sm:space-x-4">
             {loading ? (
               <div className="animate-pulse flex space-x-4">
                 <div className="rounded-full bg-gray-300 h-8 w-8"></div>
@@ -204,14 +204,14 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
               <>                {/* Credits Display */}
                 <Link 
                   href="/billing/"
-                  className={`flex items-center space-x-2 px-3 py-2 rounded-lg transition-colors ${
+                  className={`flex items-center space-x-1 sm:space-x-2 px-2 sm:px-3 py-2 rounded-lg transition-colors min-h-[44px] ${
                     darkMode 
                       ? 'bg-gray-800 text-white hover:bg-gray-700' 
                       : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
                   }`}
                 >
-                  <span className="text-sm font-medium">
-                    {creditsLoading ? '...' : credits} Credits
+                  <span className="text-xs sm:text-sm font-medium">
+                    {creditsLoading ? '...' : credits} <span className="hidden sm:inline">Credits</span>
                   </span>
                   <span className="text-xs">💳</span>
                 </Link>
@@ -220,7 +220,7 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                 <div className="relative" ref={profileMenuRef}>
                 <button
                   onClick={() => setShowProfileMenu(!showProfileMenu)}
-                  className="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-opacity-10 hover:bg-gray-500 transition-colors"
+                  className="flex items-center space-x-1 sm:space-x-3 px-2 sm:px-3 py-2 rounded-lg hover:bg-opacity-10 hover:bg-gray-500 transition-colors min-h-[44px]"
                 >                  {profile?.picture ? (
                     <Image
                       src={profile.picture}
@@ -234,7 +234,7 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                       {user?.name?.charAt(0).toUpperCase() || 'U'}
                     </div>
                   )}
-                  <span className={`hidden sm:block ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                  <span className={`hidden md:block text-sm ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                     {user?.name}
                   </span>
                   <svg className={`w-4 h-4 transition-transform ${showProfileMenu ? 'rotate-180' : ''} ${darkMode ? 'text-white' : 'text-gray-900'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -297,7 +297,7 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                     setFormData({ email: '', password: '', name: '' });
                     setFormError(null);
                   }}
-                  className={`px-4 py-2 rounded-lg transition-colors ${
+                  className={`px-3 sm:px-4 py-2 rounded-lg transition-colors min-h-[44px] text-sm sm:text-base ${
                     darkMode
                       ? 'text-gray-300 hover:text-white hover:bg-gray-800'
                       : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
@@ -305,7 +305,7 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                 >
                   Log in
                 </button>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1 sm:space-x-2">
                 <button
                   onClick={() => {
                     setIsLogin(false);
@@ -313,7 +313,7 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                     setFormData({ email: '', password: '', name: '' });
                     setFormError(null);
                   }}
-                  className={`px-4 py-2 rounded-lg border transition-colors ${
+                  className={`px-3 sm:px-4 py-2 rounded-lg border transition-colors min-h-[44px] text-sm sm:text-base ${
                     darkMode
                       ? 'border-gray-600 text-gray-300 hover:bg-gray-800'
                       : 'border-gray-300 text-gray-700 hover:bg-gray-50'
@@ -321,7 +321,7 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                 >
                   Sign up
                 </button>
-                  <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ml-1 ${darkMode ? 'bg-pink-900/60 text-pink-200' : 'bg-pink-100 text-pink-600'}`}>🎁 1 free video credit for new users!</span>
+                  <span className={`hidden sm:inline-block px-2 sm:px-3 py-1 rounded-full text-xs font-semibold ${darkMode ? 'bg-pink-900/60 text-pink-200' : 'bg-pink-100 text-pink-600'}`}>🎁 1 free video credit for new users!</span>
                 </div>
               </>
             )}
@@ -329,7 +329,7 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
             {/* Dark mode toggle */}
             <button
               onClick={toggleDarkMode}
-              className={`p-2 rounded-lg transition-colors ${
+              className={`p-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] ${
                 darkMode
                   ? 'text-gray-300 hover:text-white hover:bg-gray-800'
                   : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
@@ -343,8 +343,8 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
 
       {/* Auth Modal */}
       {showAuthModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className={`w-full max-w-md rounded-xl p-6 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 safe-area-inset">
+          <div className={`w-full max-w-md rounded-xl p-4 sm:p-6 modal ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
             <div className="flex justify-between items-center mb-6">
               <h2 className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                 {isLogin ? 'Log in' : 'Sign up'}
