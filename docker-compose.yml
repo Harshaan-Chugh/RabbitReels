@@ -82,7 +82,7 @@ services:
       - "80:80"
     env_file: .env
     environment:
-      NEXT_PUBLIC_API_BASE: http://localhost/api
+      NEXT_PUBLIC_API_BASE: http://localhost
       ENVIRONMENT: development
     depends_on:
       - api

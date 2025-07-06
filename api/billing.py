@@ -127,6 +127,34 @@ def spend_credit(user_id: str, db: Session) -> None:
         logger.error(f"Error spending credit for {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Error processing credit")
 
+def refund_credit(user_id: str, db: Session, reason: str = "Video generation failed") -> None:
+    """
+    Refund one credit to user's balance in database.
+    """
+    try:
+        # Get or create credit balance
+        balance = db.query(CreditBalance).filter(CreditBalance.user_id == user_id).first()
+        if balance:
+            balance.credits += 1
+        else:
+            balance = CreditBalance(user_id=user_id, credits=1)
+            db.add(balance)
+        
+        # Log the refund transaction
+        transaction = CreditTransaction(
+            user_id=user_id,
+            amount=1,
+            description=f"Credit refund: {reason}"
+        )
+        db.add(transaction)
+        db.commit()
+        
+        logger.info(f"Refunded 1 credit to user {user_id}, new balance: {balance.credits}, reason: {reason}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error refunding credit for {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error processing credit refund")
+
 @router.get("/balance", response_model=BalanceResponse)
 async def get_balance(
     current_user: Dict[str, Any] = Depends(get_current_user),

@@ -6,6 +6,7 @@ import { VideoCounterProvider } from "@/contexts/VideoCounterContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { BillingProvider } from "@/contexts/BillingContext";
+import { VideoHistoryProvider } from "@/contexts/VideoHistoryContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -69,9 +70,11 @@ export default function RootLayout({
         <ThemeProvider>
           <AuthProvider>
             <BillingProvider>
-              <VideoCounterProvider>
-                {children}
-              </VideoCounterProvider>
+              <VideoHistoryProvider>
+                <VideoCounterProvider>
+                  {children}
+                </VideoCounterProvider>
+              </VideoHistoryProvider>
             </BillingProvider>
           </AuthProvider>
         </ThemeProvider>

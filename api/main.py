@@ -33,7 +33,7 @@ from config import (
     DEBUG
 )
 from auth import router as auth_router, get_current_user
-from database import init_db, get_db
+from database import init_db, get_db, UserVideo
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -277,14 +277,57 @@ def submit_video(job: PromptJob, current_user: dict = Depends(get_current_user),
         logger.error("No user ID found in current_user")
         raise HTTPException(status_code=400, detail="Invalid user session")
     
+    # Store user video in database FIRST (before charging credits)
+    try:
+        # Generate a title from the prompt if none provided
+        video_title = job.title
+        if not video_title:
+            # Create a title from the first 50 characters of the prompt
+            video_title = job.prompt[:50].strip()
+            if len(job.prompt) > 50:
+                video_title += "..."
+        
+        user_video = UserVideo(
+            user_id=user_id,
+            job_id=job.job_id,
+            title=video_title,
+            character_theme=job.character_theme,
+            prompt=job.prompt,
+            status="queued"
+        )
+        db.add(user_video)
+        db.commit()
+        logger.info(f"User video record created for job {job.job_id} with title: {video_title}")
+    except Exception as e:
+        logger.error(f"Failed to create user video record: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Error creating video record")
+    
+    # Only charge credits AFTER successful video record creation
     try:
         spend_credit(user_id, db)
         logger.info(f"Credit spent for user {user_id} for job {job.job_id}")
     except HTTPException as e:
         logger.warning(f"Credit spending failed for user {user_id}: {e.detail}")
+        # If credit spending fails, delete the video record we just created
+        try:
+            db.delete(user_video)
+            db.commit()
+            logger.info(f"Deleted video record for failed credit spending: {job.job_id}")
+        except Exception as cleanup_e:
+            logger.error(f"Failed to cleanup video record after credit failure: {cleanup_e}")
+            db.rollback()
         raise e
     except Exception as e:
         logger.error(f"Unexpected error spending credit for user {user_id}: {e}")
+        # If credit spending fails, delete the video record we just created
+        try:
+            db.delete(user_video)
+            db.commit()
+            logger.info(f"Deleted video record for failed credit spending: {job.job_id}")
+        except Exception as cleanup_e:
+            logger.error(f"Failed to cleanup video record after credit failure: {cleanup_e}")
+            db.rollback()
         raise HTTPException(status_code=500, detail="Error processing payment")
     
     job_data = job.model_dump()
@@ -398,29 +441,39 @@ def get_video_status(job_id: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/videos/{job_id}/file", tags=["Videos"])
-def download_video(job_id: str):
+def download_video(job_id: str, db: Session = Depends(get_db)):
     """
     Download the finished MP4 file.
     """
     try:
+        # First check Redis for status
         r = get_redis()
-        if r is None:
-            raise HTTPException(status_code=503, detail="Status service unavailable")
+        status_from_redis = None
+        
+        if r is not None:
+            data = r.get(job_id)
+            if data:
+                try:
+                    status_info = json.loads(data)
+                    status_from_redis = status_info.get("status")
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid JSON in Redis for job {job_id}")
+        
+        # If Redis doesn't have the data or status isn't "done", check the database
+        if status_from_redis != "done":
+            logger.info(f"Redis status is '{status_from_redis}' for {job_id}, checking database")
+            user_video = db.query(UserVideo).filter(UserVideo.job_id == job_id).first()
             
-        data = r.get(job_id)
+            if not user_video:
+                raise HTTPException(status_code=404, detail="Video not found")
+            
+            if user_video.status == "error":
+                error_msg = user_video.error_message or "Unknown error"
+                raise HTTPException(status_code=404, detail=f"Video generation failed: {error_msg}")
+            elif user_video.status != "done":
+                raise HTTPException(status_code=404, detail=f"Video not ready (status: {user_video.status})")
         
-        if not data:
-            raise HTTPException(status_code=404, detail="Job not found")
-        
-        status_info = json.loads(data)
-        
-        if status_info.get("status") != "done":
-            status = status_info.get("status", "unknown")
-            if status == "error":
-                raise HTTPException(status_code=404, detail=f"Video generation failed: {status_info.get('error_msg', 'Unknown error')}")
-            else:
-                raise HTTPException(status_code=404, detail=f"Video not ready (status: {status})")
-        
+        # Video is ready, serve the file
         video_path = os.path.join(VIDEO_OUT_DIR, f"{job_id}.mp4")
         
         if not os.path.exists(video_path):
@@ -444,6 +497,163 @@ def download_video(job_id: str):
         raise
     except Exception as e:
         logger.error(f"Error downloading video for job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/user/videos", tags=["Videos"])
+def get_user_videos(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Get all videos created by the current user.
+    """
+    user_id = str(current_user.get("id", current_user.get("sub", "")))
+    
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid user session")
+    
+    try:
+        # Get user videos from database, ordered by creation date (newest first)
+        user_videos = db.query(UserVideo).filter(UserVideo.user_id == user_id).order_by(UserVideo.created_at.desc()).all()
+        
+        # Format the response
+        videos = []
+        for video in user_videos:
+            # Get current status from Redis if available
+            current_status = video.status
+            download_url = video.download_url
+            error_message = video.error_message
+            
+            # Check Redis for more up-to-date status
+            try:
+                r = get_redis()
+                if r is not None:
+                    redis_data = r.get(video.job_id)
+                    if redis_data:
+                        redis_status = json.loads(redis_data)
+                        current_status = redis_status.get("status", current_status)
+                        if current_status == "done":
+                            download_url = f"/api/videos/{video.job_id}/file"
+                        elif current_status == "error":
+                            error_message = redis_status.get("error_msg", error_message)
+            except Exception as e:
+                logger.warning(f"Failed to get Redis status for job {video.job_id}: {e}")
+            
+            videos.append({
+                "id": video.id,
+                "job_id": video.job_id,
+                "title": video.title,
+                "character_theme": video.character_theme,
+                "prompt": video.prompt,
+                "status": current_status,
+                "download_url": download_url,
+                "error_message": error_message,
+                "created_at": video.created_at.isoformat(),
+                "updated_at": video.updated_at.isoformat()
+            })
+        
+        return {"videos": videos}
+        
+    except Exception as e:
+        logger.error(f"Error getting user videos for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.post("/user/videos/update-status", tags=["Videos"])
+def update_user_video_status(
+    status_update: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    Update user video status (called by video creator service).
+    """
+    try:
+        job_id = status_update.get("job_id")
+        status = status_update.get("status")
+        file_path = status_update.get("file_path")
+        download_url = status_update.get("download_url")
+        error_message = status_update.get("error_message")
+        
+        if not job_id or not status:
+            raise HTTPException(status_code=400, detail="job_id and status are required")
+        
+        # Find the user video record
+        user_video = db.query(UserVideo).filter(UserVideo.job_id == job_id).first()
+        
+        if not user_video:
+            logger.warning(f"User video not found for job_id: {job_id}")
+            return {"success": False, "message": "Video not found"}
+        
+        # If video generation failed, refund the credit
+        if status == "error" and user_video.status != "error":
+            try:
+                from billing import refund_credit
+                refund_credit(user_video.user_id, db, f"Video generation failed: {error_message or 'Unknown error'}")
+                logger.info(f"Refunded credit for failed video generation: {job_id}")
+            except Exception as e:
+                logger.error(f"Failed to refund credit for job {job_id}: {e}")
+                # Continue with status update even if refund fails
+        
+        # Update the status
+        user_video.status = status
+        
+        if file_path:
+            user_video.file_path = file_path
+        
+        if download_url:
+            user_video.download_url = download_url
+        
+        if error_message:
+            user_video.error_message = error_message
+        
+        db.commit()
+        logger.info(f"Updated user video status for job {job_id} to {status}")
+        
+        return {"success": True, "message": "Status updated successfully"}
+        
+    except Exception as e:
+        logger.error(f"Error updating user video status: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.post("/user/videos/refund-credit", tags=["Videos"])
+def refund_user_credit(
+    refund_request: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    Refund credit for failed video generation (called by video creator service).
+    """
+    try:
+        job_id = refund_request.get("job_id")
+        user_id = refund_request.get("user_id")
+        reason = refund_request.get("reason", "Video generation failed")
+        
+        if not job_id or not user_id:
+            raise HTTPException(status_code=400, detail="job_id and user_id are required")
+        
+        # Verify the job exists and belongs to the user
+        user_video = db.query(UserVideo).filter(
+            UserVideo.job_id == job_id,
+            UserVideo.user_id == user_id
+        ).first()
+        
+        if not user_video:
+            logger.warning(f"User video not found for job_id: {job_id}, user_id: {user_id}")
+            return {"success": False, "message": "Video not found or doesn't belong to user"}
+        
+        # Only refund if not already refunded (check if status is not already error)
+        if user_video.status == "error":
+            logger.info(f"Credit already refunded for job {job_id}")
+            return {"success": True, "message": "Credit already refunded"}
+        
+        # Refund the credit
+        from billing import refund_credit
+        refund_credit(user_id, db, reason)
+        
+        logger.info(f"Refunded credit for job {job_id} to user {user_id}")
+        
+        return {"success": True, "message": "Credit refunded successfully"}
+        
+    except Exception as e:
+        logger.error(f"Error refunding credit: {e}")
+        db.rollback()
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/health")

@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8080';
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost';
 
   const fetchProfile = useCallback(async (token: string) => {
     try {

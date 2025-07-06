@@ -29,7 +29,7 @@ API_RELOAD = os.getenv("API_RELOAD", "false").lower() == "true"  # Disable reloa
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-GOOGLE_AUTH_REDIRECT = os.getenv("GOOGLE_AUTH_REDIRECT", "http://localhost:8080/api/auth/callback")
+GOOGLE_AUTH_REDIRECT = os.getenv("GOOGLE_AUTH_REDIRECT", "http://localhost/api/auth/callback")
 
 JWT_SECRET = os.getenv("JWT_SECRET")
 if not JWT_SECRET:
@@ -37,7 +37,7 @@ if not JWT_SECRET:
 JWT_ALG = "HS256"
 JWT_EXPIRES_SEC = 7 * 24 * 3600
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3001")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost")
 
 # Production settings
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")

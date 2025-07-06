@@ -18,7 +18,7 @@ type Status =
   | { stage: "done"; jobId: string; downloadUrl: string }
   | { stage: "error"; msg: string };
 
-const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8080';
+const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost';
 const API_BASE_URL = RAW_BASE.endsWith('/api') ? RAW_BASE : `${RAW_BASE}/api`;
 
 export default function Generator() {
@@ -212,7 +212,7 @@ export default function Generator() {
               
               <div className="space-y-4">
                 <a
-                  href={`${API_BASE_URL}${status.downloadUrl}`}
+                  href={`${API_BASE_URL}${status.downloadUrl.replace('/api/', '/')}`}
                   className="bg-gradient-to-r from-purple-500 to-purple-600 text-white px-8 py-4 rounded-xl w-full inline-block text-center font-bold text-lg hover:from-purple-600 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl"
                   download>
                   ⬇️ Download MP4

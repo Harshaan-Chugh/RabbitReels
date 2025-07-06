@@ -3,7 +3,7 @@ import os, glob, json, tempfile, base64, re, random, time, traceback
 import requests, numpy as np            # type: ignore
 import pika                             # type: ignore
 import redis                            # type: ignore
-from typing import List, Dict, Tuple
+from typing import List, Dict, Optional
 from requests.exceptions import ConnectionError, Timeout, HTTPError
 import socket
 from moviepy.editor import (            # type: ignore
@@ -35,6 +35,33 @@ from config import (
     TTS_BACKOFF_MULTIPLIER,
     DATABASE_URL,
 )
+
+# Function to update user video status via API
+def update_user_video_status(job_id: str, status: str, file_path: Optional[str] = None, error_message: Optional[str] = None):
+    """
+    Update user video status in the database via API call.
+    """
+    try:
+        api_url = "http://api:8080/api/user/videos/update-status"
+        payload = {
+            "job_id": job_id,
+            "status": status
+        }
+        
+        if file_path:
+            payload["file_path"] = file_path
+            payload["download_url"] = f"/api/videos/{job_id}/file"
+        
+        if error_message:
+            payload["error_message"] = error_message
+        
+        response = requests.post(api_url, json=payload)
+        if response.ok:
+            print(f"✅ Updated user video status for job {job_id} to {status}")
+        else:
+            print(f"⚠️ Failed to update user video status for job {job_id}: {response.status_code} {response.text}")
+    except Exception as e:
+        print(f"⚠️ Error updating user video status for job {job_id}: {e}")
 
 # ElevenLabs API headers
 HEADERS = {"xi-api-key": ELEVEN_API_KEY}
@@ -525,9 +552,23 @@ def increment_video_count_postgres():
         print(f"⚠️ Error incrementing video count in Postgres: {e}")
 
 def on_message(ch, method, props, body):
+    from health_monitor import get_health_monitor
+    
+    health_monitor = get_health_monitor()
+    
+    # Check if worker should accept new jobs
+    if health_monitor and not health_monitor.should_accept_new_jobs():
+        print("🛑 Worker is shutting down, rejecting new job")
+        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+        return
+    
     job = DialogJob.model_validate_json(body)
     video_generation_successful = False
     video_path = None
+    
+    # Set current job in health monitor
+    if health_monitor:
+        health_monitor.set_current_job(job.job_id)
     
     try:
         print(f"🐰 Rendering video for {job.job_id}…")
@@ -541,6 +582,9 @@ def on_message(ch, method, props, body):
             }
             r.set(job.job_id, json.dumps(status_data))
             print(f"Updated Redis status to 'rendering' for {job.job_id}")
+            
+            # Update user video status to rendering
+            update_user_video_status(job.job_id, "rendering")
         except Exception as e:
             print(f"Warning: Failed to update Redis status to rendering: {e}")
         
@@ -554,10 +598,13 @@ def on_message(ch, method, props, body):
             status_data = {
                 "job_id": job.job_id,
                 "status": "done",
-                "download_url": f"/videos/{job.job_id}/file"
+                "download_url": f"/api/videos/{job.job_id}/file"
             }
             r.set(job.job_id, json.dumps(status_data))
             print(f"Updated Redis status to 'done' for {job.job_id}")
+            
+            # Update user video status to done
+            update_user_video_status(job.job_id, "done", video_path)
         except Exception as e:
             print(f"Error updating Redis status to done: {e}")
             raise Exception(f"Video created but failed to update status: {str(e)}")
@@ -567,8 +614,19 @@ def on_message(ch, method, props, body):
         
         increment_video_count_postgres()
         
+        # Mark job as completed successfully
+        if health_monitor:
+            health_monitor.job_completed(job.job_id, success=True)
+        
     except Exception as e:
         print(f"[✗] Video generation failed for {job.job_id}: {e}")
+        
+        # Mark job as failed
+        if health_monitor:
+            health_monitor.job_completed(job.job_id, success=False)
+        
+        # Update user video status to error
+        update_user_video_status(job.job_id, "error", error_message=str(e))
         
         try:
             r = redis.from_url(REDIS_URL, decode_responses=True)
@@ -606,36 +664,90 @@ def on_message(ch, method, props, body):
                 print(f"✅ Video ready (publisher disabled): {video_path}")
         except Exception as post_e:
             print(f"⚠️ Post-processing failed (video already completed): {post_e}")
+    
+    # Acknowledge message processing
+    ch.basic_ack(delivery_tag=method.delivery_tag)
 
 def main():
-    while True:
-        try:
-            if not RABBIT_URL:
-                raise ValueError("RABBIT_URL is not configured")
-            connection_params = pika.URLParameters(RABBIT_URL)
-            connection_params.heartbeat = 30
-            connection_params.blocked_connection_timeout = 300
-            connection_params.connection_attempts = 3
-            connection_params.retry_delay = 2
-            
-            conn = pika.BlockingConnection(connection_params)
-            ch = conn.channel()
-            ch.queue_declare(queue=VIDEO_QUEUE, durable=True)
-            ch.basic_qos(prefetch_count=1)
-            ch.basic_consume(queue=VIDEO_QUEUE, on_message_callback=on_message, auto_ack=True)
-            print("🚀 Video Creator waiting for scripts…")
-            ch.start_consuming()
-        except KeyboardInterrupt:
-            print("🛑 Video Creator shutting down...")
-            if 'ch' in locals():
-                ch.stop_consuming()
-            if 'conn' in locals():
-                conn.close()
-            break
-        except Exception as e:
-            print(f"⚠️ Connection error: {e}. Reconnecting in 5 seconds...")
-            import time
-            time.sleep(5)
+    from health_monitor import initialize_health_monitor
+    
+    # Initialize health monitor
+    health_monitor = None
+    if REDIS_URL:
+        health_monitor = initialize_health_monitor(REDIS_URL)
+        
+        if not health_monitor.start():
+            print("❌ Failed to start health monitor, continuing without health monitoring")
+            health_monitor = None
+    else:
+        print("⚠️ REDIS_URL not configured, health monitoring disabled")
+    
+    try:
+        while True:
+            try:
+                # Check if shutdown was requested
+                if health_monitor and health_monitor.is_shutdown_requested():
+                    print("🛑 Shutdown requested, exiting...")
+                    break
+                
+                if not RABBIT_URL:
+                    raise ValueError("RABBIT_URL is not configured")
+                connection_params = pika.URLParameters(RABBIT_URL)
+                connection_params.heartbeat = 30
+                connection_params.blocked_connection_timeout = 300
+                connection_params.connection_attempts = 3
+                connection_params.retry_delay = 2
+                
+                conn = pika.BlockingConnection(connection_params)
+                ch = conn.channel()
+                ch.queue_declare(queue=VIDEO_QUEUE, durable=True)
+                ch.basic_qos(prefetch_count=1)
+                ch.basic_consume(queue=VIDEO_QUEUE, on_message_callback=on_message, auto_ack=False)
+                print("🚀 Video Creator waiting for scripts…")
+                
+                # Start consuming with timeout to check for shutdown
+                while True:
+                    try:
+                        conn.process_data_events(time_limit=1)
+                        if health_monitor and health_monitor.is_shutdown_requested():
+                            print("🛑 Graceful shutdown requested, stopping message consumption...")
+                            ch.stop_consuming()
+                            break
+                    except Exception as e:
+                        print(f"⚠️ Error processing messages: {e}")
+                        break
+                
+                if 'ch' in locals():
+                    ch.close()
+                if 'conn' in locals():
+                    conn.close()
+                
+                # If shutdown was requested, break the main loop
+                if health_monitor and health_monitor.is_shutdown_requested():
+                    break
+                    
+            except KeyboardInterrupt:
+                print("🛑 Video Creator shutting down...")
+                if health_monitor:
+                    health_monitor.initiate_graceful_shutdown()
+                if 'ch' in locals():
+                    ch.stop_consuming()
+                if 'conn' in locals():
+                    conn.close()
+                break
+            except Exception as e:
+                print(f"⚠️ Connection error: {e}. Reconnecting in 5 seconds...")
+                if health_monitor:
+                    health_monitor.set_health_status(False, f"Connection error: {e}")
+                import time
+                time.sleep(5)
+                if health_monitor:
+                    health_monitor.set_health_status(True, "Reconnected")
+    finally:
+        # Clean shutdown
+        if health_monitor:
+            health_monitor.stop()
+        print("🏁 Video Creator shutdown complete")
 
 if __name__ == "__main__":
     main()

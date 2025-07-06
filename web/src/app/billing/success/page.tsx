@@ -7,7 +7,7 @@ import { useBilling } from "@/contexts/BillingContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import Navbar from "@/components/Navbar";
 
-const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8080';
+const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost';
 const API_BASE_URL = RAW_BASE.endsWith('/api') ? RAW_BASE : `${RAW_BASE}/api`;
 
 function SuccessContent() {

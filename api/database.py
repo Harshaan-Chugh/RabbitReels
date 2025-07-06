@@ -56,6 +56,22 @@ class CreditTransaction(Base):
     description = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class UserVideo(Base):
+    __tablename__ = "user_videos"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, nullable=False, index=True)
+    job_id = Column(String, nullable=False, index=True)
+    title = Column(String, nullable=False)
+    character_theme = Column(String, nullable=False)
+    prompt = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default="queued")  # queued, rendering, done, error
+    file_path = Column(String, nullable=True)
+    download_url = Column(String, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 class SystemStats(Base):
     __tablename__ = "system_stats"
     
