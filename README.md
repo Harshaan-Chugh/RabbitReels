@@ -4,8 +4,7 @@ RabbitReels is a distributed AI-agent pipeline powered by RabbitMQ that automate
 
 ## 🔐 Authentication
 
-RabbitReels now includes **Google OAuth 2.0 authentication** to secure the API and prepare for future payment integration:
-
+ **Google OAuth 2.0 authentication**:
 - **Google Sign-In**: Users authenticate with their Google accounts
 - **JWT Tokens**: Secure API access with JSON Web Tokens
 - **Protected Endpoints**: Video creation requires authentication
