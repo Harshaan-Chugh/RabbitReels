@@ -19,8 +19,12 @@ COPY video-creator/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY video-creator/video_creator.py .
-COPY video-creator/config.py        .
+COPY video-creator/config.py .
+COPY video-creator/health_monitor.py .
 COPY common ./common
 COPY video-creator/assets ./assets
+
+# Expose health check port
+EXPOSE 8000
 
 CMD ["python", "-u", "video_creator.py"]

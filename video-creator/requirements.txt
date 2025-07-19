@@ -7,3 +7,4 @@ moviepy==1.0.3
 imageio-ffmpeg
 Pillow==9.5.0
 numpy
+flask==3.0.0

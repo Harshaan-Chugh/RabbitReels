@@ -212,7 +212,7 @@ export default function Generator() {
               
               <div className="space-y-4">
                 <a
-                  href={`${API_BASE_URL}${status.downloadUrl.replace('/api/', '/')}`}
+                  href={`${API_BASE_URL}${status.downloadUrl.startsWith('/api/') ? status.downloadUrl.substring(4) : status.downloadUrl}`}
                   className="bg-gradient-to-r from-purple-500 to-purple-600 text-white px-8 py-4 rounded-xl w-full inline-block text-center font-bold text-lg hover:from-purple-600 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl"
                   download>
                   ⬇️ Download MP4

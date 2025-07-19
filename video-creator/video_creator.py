@@ -404,7 +404,7 @@ def render_video(job: DialogJob) -> str:
     
     def update_progress(progress: float, stage: str = ""):
         """
-        Update rendering progress in Redis
+        Update rendering progress in Redis and job heartbeat
         """
         if r:
             try:
@@ -416,6 +416,23 @@ def render_video(job: DialogJob) -> str:
                 }
                 r.set(job.job_id, json.dumps(status_data))
                 print(f"Progress: {progress:.1%} - {stage}")
+                
+                # Update job heartbeat
+                try:
+                    import sys
+                    sys.path.append('/app/scaling-controller')
+                    from job_manager import JobManager
+                    from health_monitor import get_health_monitor
+                    
+                    health_monitor = get_health_monitor()
+                    worker_id = health_monitor.worker_id if health_monitor else f"worker-{os.getpid()}"
+                    
+                    job_manager = JobManager(REDIS_URL)
+                    if job_manager.connect_redis():
+                        job_manager.update_job_heartbeat(job.job_id, worker_id)
+                except Exception as heartbeat_error:
+                    print(f"Warning: Failed to update job heartbeat: {heartbeat_error}")
+                    
             except Exception as e:
                 print(f"Warning: Failed to update progress: {e}")
     
@@ -553,6 +570,9 @@ def increment_video_count_postgres():
 
 def on_message(ch, method, props, body):
     from health_monitor import get_health_monitor
+    import sys
+    sys.path.append('/app/scaling-controller')
+    from job_manager import JobManager
     
     health_monitor = get_health_monitor()
     
@@ -565,6 +585,19 @@ def on_message(ch, method, props, body):
     job = DialogJob.model_validate_json(body)
     video_generation_successful = False
     video_path = None
+    
+    # Initialize job manager for this message
+    job_manager = None
+    if REDIS_URL:
+        job_manager = JobManager(REDIS_URL)
+        job_manager.connect_redis()
+    
+    worker_id = health_monitor.worker_id if health_monitor else f"worker-{os.getpid()}"
+    
+    # Assign job to this worker
+    if job_manager:
+        job_manager.assign_job(job.job_id, worker_id)
+        job_manager.start_job(job.job_id, worker_id)
     
     # Set current job in health monitor
     if health_monitor:
@@ -618,12 +651,18 @@ def on_message(ch, method, props, body):
         if health_monitor:
             health_monitor.job_completed(job.job_id, success=True)
         
+        if job_manager:
+            job_manager.complete_job(job.job_id, worker_id, success=True)
+        
     except Exception as e:
         print(f"[✗] Video generation failed for {job.job_id}: {e}")
         
         # Mark job as failed
         if health_monitor:
             health_monitor.job_completed(job.job_id, success=False)
+        
+        if job_manager:
+            job_manager.complete_job(job.job_id, worker_id, success=False, error_message=str(e))
         
         # Update user video status to error
         update_user_video_status(job.job_id, "error", error_message=str(e))
@@ -670,6 +709,9 @@ def on_message(ch, method, props, body):
 
 def main():
     from health_monitor import initialize_health_monitor
+    import sys
+    sys.path.append('/app/scaling-controller')
+    from job_manager import JobManager
     
     # Initialize health monitor
     health_monitor = None
@@ -681,6 +723,16 @@ def main():
             health_monitor = None
     else:
         print("⚠️ REDIS_URL not configured, health monitoring disabled")
+    
+    # Initialize job manager
+    job_manager = None
+    if REDIS_URL:
+        job_manager = JobManager(REDIS_URL)
+        if job_manager.connect_redis():
+            print("✅ Job manager connected")
+        else:
+            print("❌ Failed to connect job manager")
+            job_manager = None
     
     try:
         while True:

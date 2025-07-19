@@ -1,0 +1,228 @@
+version: '3.8'
+
+services:
+  # Redis, RabbitMQ, Postgres
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: rabbitreels
+      POSTGRES_USER: rabbitreels
+      POSTGRES_PASSWORD: IjnxShgB1CfpKs0Oj9gpMn2rmWJ2siS5LRsASUPQLx0=
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rabbitreels} -d ${POSTGRES_DB:-rabbitreels}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - rabbitreels-network
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --save 60 1000
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - rabbitreels-network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - rabbitreels-network
+
+  # API Gateway
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    ports:
+      - "8080:8080"
+    env_file: .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      ENVIRONMENT: development
+      SESSION_SECRET: "58580CB34074EA82F892B1BD7ABA6400D50DA3B0F2F4B0C9DE321B776E287EE2"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - videos-data:/app/data/videos
+    restart: unless-stopped
+    networks:
+      - rabbitreels-network
+
+  # Frontend
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    ports:
+      - "80:80"
+    env_file: .env
+    environment:
+      NEXT_PUBLIC_API_BASE: http://localhost
+      ENVIRONMENT: development
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - rabbitreels-network
+
+  # Script Generator Worker
+  script-generator:
+    build:
+      context: .
+      dockerfile: scripts-generator/Dockerfile
+    env_file: .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      ENVIRONMENT: development
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - rabbitreels-network
+
+  # Auto-scaling components
+  queue-monitor:
+    image: rabbitreels/queue-monitor:latest
+    env_file: .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      ENVIRONMENT: development
+      MIN_WORKERS: 1
+      MAX_WORKERS: 5
+      SCALE_UP_THRESHOLD: 2
+      SCALE_DOWN_THRESHOLD: 0.5
+      COOLDOWN_PERIOD: 30
+      METRICS_COLLECTION_INTERVAL: 10
+      # Job-aware scaling settings
+      JOB_TIMEOUT: 3600
+      JOB_HEARTBEAT_TIMEOUT: 300
+      JOB_MAX_RETRIES: 3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - rabbitreels-network
+
+  # Scaling Controller
+  scaling-controller:
+    image: rabbitreels/scaling-controller:latest
+    env_file: .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      ENVIRONMENT: development
+      DEPLOYMENT_MODE: compose
+      VIDEO_CREATOR_SERVICE: video-creator
+      VIDEO_CREATOR_IMAGE: rabbitreels/video-creator:latest
+      DOCKER_NETWORK: rabbitreels_rabbitreels-network
+      MIN_WORKERS: 1
+      MAX_WORKERS: 5
+      COOLDOWN_PERIOD: 60
+      SCALING_CHECK_INTERVAL: 15
+      # Enhanced scaling settings
+      JOB_DRAIN_TIMEOUT: 1800
+      GRACEFUL_SHUTDOWN_TIMEOUT: 300
+      UNHEALTHY_WORKER_TIMEOUT: 300
+      JOB_COMPLETION_COOLDOWN: 120
+      # Capacity tracking
+      CAPACITY_TRACKING_WINDOW: 3600
+      PERFORMANCE_SAMPLES: 10
+      EFFICIENCY_THRESHOLD: 70.0
+      # Remove DOCKER_HOST to use default connection
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - rabbitreels-network
+
+  # Initial Video Creator Worker
+  video-creator:
+    image: rabbitreels/video-creator:latest
+    env_file: .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      ENVIRONMENT: development
+      WORKER_ID: video-creator-1
+      HEALTH_CHECK_PORT: 8000
+      # Worker health and capacity settings
+      HEARTBEAT_INTERVAL: 10
+      GRACEFUL_SHUTDOWN_TIMEOUT: 300
+      # Job processing settings
+      JOB_TIMEOUT: 3600
+      JOB_HEARTBEAT_TIMEOUT: 300
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - videos-data:/app/data/videos
+    ports:
+      - "8000:8000"
+    restart: on-failure
+    networks:
+      - rabbitreels-network
+
+  # Publisher Worker
+  publisher:
+    build:
+      context: .
+      dockerfile: publisher/Dockerfile
+    env_file: .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      ENVIRONMENT: development
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - videos-data:/app/data/videos
+    restart: on-failure
+    networks:
+      - rabbitreels-network
+    profiles:
+      - publisher
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  videos-data:
+    driver: local
+
+networks:
+  rabbitreels-network:
+    driver: bridge

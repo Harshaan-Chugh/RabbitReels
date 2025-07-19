@@ -1,51 +1,72 @@
 # RabbitReels
 
-RabbitReels is a distributed AI-agent pipeline powered by RabbitMQ that automates the end-to-end creation and publication of YouTube Shorts. It features a script-generator service that produces concise video narratives, a video-creator service that transforms those scripts into MP4 clips using AI-driven rendering tools, and a publisher service that handles seamless uploads to YouTube—ensuring scalable, fault-tolerant content delivery at every step.
+### Distributed AI Video Platform
 
-## 🔐 Authentication
+RabbitReels is a distributed AI platform that automates short-form video creation, editing, and publishing. Built for creators without traditional video editing skills, RabbitReels uses Python, FastAPI, Next.js, and RabbitMQ to enable rapid content generation from script to screen in under 5 minutes.
 
-RabbitReels now includes **Google OAuth 2.0 authentication** to secure the API and prepare for future payment integration:
+RabbitReels began as a personal project to automate short-form video creation, evolving into a platform serving over 50 active monthly users. Initially facing scaling issues, RabbitReels adopted a Redis-based auto-scaling strategy, reducing processing time from 15 minutes down to 2-5 minutes per video.
 
-- **Google Sign-In**: Users authenticate with their Google accounts
-- **JWT Tokens**: Secure API access with JSON Web Tokens
-- **Protected Endpoints**: Video creation requires authentication
-- **User Tracking**: All video jobs are associated with authenticated users
+## Features
 
-### Quick Start with Authentication
+### Core Capabilities
 
-1. **Set up Google OAuth** (see [OAUTH_SETUP.md](./OAUTH_SETUP.md))
-2. **Set up Environment Variables** (see [.env.example](./.env.example)) and train your voice models with [speech-files](speech-files)
-3. **Start the services**:
-   ```bash
-   docker run -d -p 6379:6379 redis:7-alpine
-   docker run -d -p 5672:5672 rabbitmq:3-management
-   cd api && python main.py
-   ```
-4. **Visit** `http://localhost:8080` and sign in with Google
-5. **Create videos** using the authenticated API
+* Fully automated AI-driven video pipeline.
+* Scalable backend with auto-scaling using Redis, RabbitMQ, and Docker on GCP.
+* Fast video rendering (2-5 minutes per video).
+* Seamless publishing directly to YouTube.
 
-## 🏗️ Architecture
+### Security and Payments
 
-The system consists of:
+* Secure authentication (Google OAuth 2.0, JWT, 2FA).
+* Credits-based monetization via Stripe.
+* Usage tracking and flexible subscription tiers.
 
-- **FastAPI Web Layer**: HTTP API with Google OAuth authentication
-- **Script Generator**: AI-powered script creation
-- **Video Creator**: MP4 rendering with character voices
-- **Publisher**: YouTube upload automation
-- **RabbitMQ**: Message queue for scalable processing
-- **Redis**: Job status tracking and user sessions
+## Technical Stack
 
-## 📚 Documentation
+* 🛠️ **Backend**: Python, FastAPI, PostgreSQL
+* 🌐 **Frontend**: Next.js, TypeScript
+* 📨 **Message Queue**: RabbitMQ
+* 📈 **Job Management**: Redis
+* 🐳 **Containerization & Scaling**: Docker, Google Cloud Platform
 
-- [OAuth Setup Guide](./OAUTH_SETUP.md) - Google authentication configuration
-- [API Documentation](./api/README.md) - Endpoint reference
-- [Video Creator](./video-creator/README.md) - Video processing pipeline
-- [Publisher](./publisher/README.md) - YouTube integration
+## Quick Start
 
-## Other Stuff
+### Prerequisites
 
-- [ ] Stripe payment integration
-- [ ] Usage limits and billing tiers  
-- [ ] WIP: Enhanced web frontend
-- [ ] WIP: Video template customization
-- [ ] WIP: Advanced analytics dashboard
+* Docker
+* Google OAuth credentials
+
+### Setup Instructions
+
+1. Clone repository:
+
+```bash
+git clone https://github.com/yourusername/RabbitReels.git
+cd RabbitReels
+```
+
+2. Configure environment:
+
+* Copy `.env.example` to `.env` and customize.
+* Set up Google OAuth following instructions in [OAUTH\_SETUP.md](./OAUTH_SETUP.md).
+
+3. Launch services:
+
+```bash
+docker run -d -p 6379:6379 redis:7-alpine
+docker run -d -p 5672:5672 rabbitmq:3-management
+
+cd api && python main.py
+```
+
+## Architecture
+
+The system balances usability, security, and technical sophistication:
+
+* 🌐 **FastAPI Web Layer**: Lightning-fast HTTP API with Google OAuth authentication
+* 🤖 **Script Generator**: AI-powered narrative creation tailored to your style
+* 🎬 **Video Creator**: MP4 rendering with customizable character voices
+* 📺 **Publisher**: Automated YouTube upload
+* 🐰 **RabbitMQ**: Orchestrates message queue for the entire pipeline
+* ⚡ **Redis**: Real-time job tracking and session management
+* 🔄 **Auto-Scaling**: Dynamically scales workers based on demand

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBilling } from "@/contexts/BillingContext";
 import { useVideoCounter } from "@/contexts/VideoCounterContext";
+import { useVideoHistory } from "@/contexts/VideoHistoryContext";
 import Image from "next/image";
 import Link from "next/link";
 import CelebrationDialog from './CelebrationDialog';
@@ -61,6 +62,7 @@ function CodeInput({ value, onChange, disabled }: { value: string; onChange: (v:
 export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showVideoHistory, setShowVideoHistory] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -68,6 +70,7 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
   const { user, profile, isAuthenticated, login, logout, loading, emailLogin, validateToken } = useAuth();
   const { credits, loading: creditsLoading, refreshBalance } = useBilling();
   const { videoCount } = useVideoCounter();
+  const { videos, loading: videoHistoryLoading, fetchVideos } = useVideoHistory();
   const profileMenuRef = useRef<HTMLDivElement>(null);// Close profile menu when clicking outside
   const [showCelebration, setShowCelebration] = useState(false);
   const [signupStep, setSignupStep] = useState<1 | 2>(1);
@@ -269,6 +272,16 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
                         </div>
                       </div>                    </div>
                     <div className="py-1">
+                      <button
+                        onClick={() => {
+                          setShowVideoHistory(true);
+                          setShowProfileMenu(false);
+                          fetchVideos(); // Refresh videos when opening modal
+                        }}
+                        className={`block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}
+                      >
+                        📽️ My Videos
+                      </button>
                       <Link
                         href="/billing/"
                         className={`block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}
@@ -503,7 +516,158 @@ export default function Navbar({ darkMode, toggleDarkMode }: NavbarProps) {
         </div>
       )}
 
-      <CelebrationDialog open={showCelebration} onClose={handleCelebrationClose} darkMode={darkMode} />
+      {/* Video History Modal */}
+      {showVideoHistory && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 safe-area-inset">
+          <div className={`w-full max-w-4xl max-h-[80vh] rounded-xl modal ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+            <div className="flex justify-between items-center p-4 sm:p-6 border-b border-gray-200 dark:border-gray-700">
+              <h2 className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                My Videos
+              </h2>
+              <button
+                onClick={() => setShowVideoHistory(false)}
+                className={`text-2xl ${darkMode ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="p-4 sm:p-6 max-h-[60vh] overflow-y-auto">
+              {videoHistoryLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  <span className={`ml-2 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Loading videos...</span>
+                </div>
+              ) : videos.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="text-4xl mb-4">🎬</div>
+                  <p className={`text-lg ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>No videos yet</p>
+                  <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Create your first video to see it here!
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {videos.map((video) => {
+                    const getThemeImage = (theme: string) => {
+                      if (theme === "family_guy") return "/family_guy.jpeg";
+                      if (theme === "rick_and_morty") return "/rick_and_morty.jpeg";
+                      return "";
+                    };
+                    
+                    const formatThemeName = (theme: string) => {
+                      if (theme === "family_guy") return "Family Guy";
+                      if (theme === "rick_and_morty") return "Rick And Morty";
+                      return theme.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase());
+                    };
+                    
+                    return (
+                      <div
+                        key={video.id}
+                        className={`rounded-lg border transition-all hover:shadow-md overflow-hidden ${
+                          darkMode 
+                            ? 'border-gray-600 bg-gray-700 hover:bg-gray-600' 
+                            : 'border-gray-200 bg-gray-50 hover:bg-gray-100'
+                        }`}
+                      >
+                        {/* Character Theme Image Header */}
+                        <div 
+                          className="h-32 relative"
+                          style={{
+                            backgroundImage: `url(${getThemeImage(video.character_theme)})`,
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                          }}
+                        >
+                          <div className={`absolute inset-0 ${
+                            darkMode ? 'bg-gray-900/70' : 'bg-black/50'
+                          }`} />
+                          <div className="absolute top-2 left-2 right-2 flex justify-between items-start">
+                            <span className="text-white font-bold text-sm drop-shadow-lg">
+                              {formatThemeName(video.character_theme)}
+                            </span>
+                            <div className={`text-xs px-2 py-1 rounded-full ${
+                              video.status === 'done' 
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                : video.status === 'error'
+                                ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                                : video.status === 'rendering'
+                                ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                                : 'bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-200'
+                            }`}>
+                              {video.status}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Content */}
+                        <div className="p-4">
+                          <p className={`text-sm mb-3 font-medium ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                            {video.prompt.length > 120 ? video.prompt.substring(0, 120) + '...' : video.prompt}
+                          </p>
+                          
+                          <div className="flex justify-between items-center">
+                            <span className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                              {new Date(video.created_at).toLocaleDateString()}
+                            </span>
+                            
+                                                        {video.status === 'done' && video.download_url && (
+                              <a
+                                href={`${process.env.NEXT_PUBLIC_API_BASE || 'http://localhost'}${video.download_url.startsWith('/api/') ? video.download_url.substring(4) : video.download_url}`}    
+                                download
+                                className="text-xs px-4 py-2 rounded-full bg-gradient-to-r from-pink-500 to-purple-600 text-white font-bold hover:shadow-lg transition-all duration-300 hover:from-pink-600 hover:to-purple-700"
+                              >
+                                Download
+                              </a>
+                            )}
+                            
+                            {video.status === 'error' && (
+                              <span className={`text-xs ${darkMode ? 'text-red-400' : 'text-red-500'}`}>
+                                Failed
+                              </span>
+                            )}
+                            
+                            {video.status === 'rendering' && (
+                              <span className={`text-xs ${darkMode ? 'text-yellow-400' : 'text-yellow-600'}`}>
+                                Processing...
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 sm:p-6 border-t border-gray-200 dark:border-gray-700">
+              <button
+                onClick={() => {
+                  fetchVideos();
+                }}
+                disabled={videoHistoryLoading}
+                className={`px-4 py-2 rounded-lg text-sm transition-colors ${
+                  darkMode
+                    ? 'bg-gray-600 text-white hover:bg-gray-500 disabled:bg-gray-700'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:bg-gray-100'
+                }`}
+              >
+                {videoHistoryLoading ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Celebration Dialog */}
+      {showCelebration && (
+        <CelebrationDialog
+          open={showCelebration}
+          onClose={handleCelebrationClose}
+          darkMode={darkMode}
+        />
+      )}
     </>
   );
 }

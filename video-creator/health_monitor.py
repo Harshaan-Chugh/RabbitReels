@@ -39,6 +39,10 @@ class WorkerHealthMonitor:
         self.jobs_failed = 0
         self.is_shutting_down = False
         
+        # Capacity tracking
+        self.job_start_times = {}  # Track job start times for duration calculation
+        self.capacity_tracker = None
+        
         # Health check server
         self.health_app = Flask(__name__)
         self.health_server = None
@@ -121,7 +125,7 @@ class WorkerHealthMonitor:
                 'health_check_port': self.health_port
             }
             
-            self.redis_client.hset('video_workers', self.worker_id, json.dumps(worker_data))
+            self.redis_client.hset('scaling_workers', self.worker_id, json.dumps(worker_data))
             logger.info(f"Worker registered: {self.worker_id}")
             return True
             
@@ -138,7 +142,7 @@ class WorkerHealthMonitor:
             self.last_heartbeat = datetime.now()
             
             # Get current worker data
-            worker_data_str = self.redis_client.hget('video_workers', self.worker_id)
+            worker_data_str = self.redis_client.hget('scaling_workers', self.worker_id)
             if worker_data_str:
                 worker_data = json.loads(worker_data_str)
             else:
@@ -154,7 +158,7 @@ class WorkerHealthMonitor:
                 'is_shutting_down': self.is_shutting_down
             })
             
-            self.redis_client.hset('video_workers', self.worker_id, json.dumps(worker_data))
+            self.redis_client.hset('scaling_workers', self.worker_id, json.dumps(worker_data))
             return True
             
         except Exception as e:
@@ -167,7 +171,7 @@ class WorkerHealthMonitor:
             if not self.redis_client:
                 return False
             
-            self.redis_client.hdel('video_workers', self.worker_id)
+            self.redis_client.hdel('scaling_workers', self.worker_id)
             logger.info(f"Worker unregistered: {self.worker_id}")
             return True
             
@@ -215,16 +219,25 @@ class WorkerHealthMonitor:
     def set_current_job(self, job_id: str):
         """Set the current job being processed"""
         self.current_job = job_id
+        self.job_start_times[job_id] = datetime.now()
         logger.info(f"Worker {self.worker_id} started processing job: {job_id}")
     
     def job_completed(self, job_id: str, success: bool = True):
         """Mark current job as completed"""
+        job_duration = 0
+        if job_id in self.job_start_times:
+            job_duration = (datetime.now() - self.job_start_times[job_id]).total_seconds()
+            del self.job_start_times[job_id]
+        
         if success:
             self.jobs_processed += 1
-            logger.info(f"Worker {self.worker_id} completed job: {job_id}")
+            logger.info(f"Worker {self.worker_id} completed job: {job_id} in {job_duration:.1f}s")
         else:
             self.jobs_failed += 1
-            logger.error(f"Worker {self.worker_id} failed job: {job_id}")
+            logger.error(f"Worker {self.worker_id} failed job: {job_id} after {job_duration:.1f}s")
+        
+        # Update capacity tracker
+        self._update_capacity_metrics(job_duration, success)
         
         self.current_job = None
         self.update_heartbeat()
@@ -305,6 +318,23 @@ class WorkerHealthMonitor:
             logger.error("Failed to connect to Redis, health monitoring disabled")
             return False
         
+        # Initialize capacity tracker
+        try:
+            import sys
+            import os
+            sys.path.append('/app/scaling-controller')
+            from capacity_tracker import CapacityTracker
+            
+            self.capacity_tracker = CapacityTracker(self.redis_url)
+            if self.capacity_tracker.connect_redis():
+                logger.info("Capacity tracker initialized")
+            else:
+                logger.warning("Failed to initialize capacity tracker")
+                self.capacity_tracker = None
+        except Exception as e:
+            logger.warning(f"Failed to initialize capacity tracker: {e}")
+            self.capacity_tracker = None
+        
         # Register worker
         if not self.register_worker():
             logger.error("Failed to register worker")
@@ -329,8 +359,60 @@ class WorkerHealthMonitor:
         return self.shutdown_event.is_set()
     
     def should_accept_new_jobs(self) -> bool:
-        """Check if worker should accept new jobs"""
-        return self.is_healthy and not self.is_shutting_down
+        """Check if worker should accept new jobs based on health and capacity"""
+        if not self.is_healthy or self.is_shutting_down:
+            return False
+        
+        # Check capacity limits
+        if self.capacity_tracker:
+            try:
+                capacity = self.capacity_tracker.get_worker_capacity(self.worker_id)
+                if capacity:
+                    current_jobs = len([job for job in self.job_start_times.keys()])
+                    if current_jobs >= capacity.concurrent_job_limit:
+                        logger.debug(f"Worker {self.worker_id} at capacity limit: {current_jobs}/{capacity.concurrent_job_limit}")
+                        return False
+            except Exception as e:
+                logger.warning(f"Failed to check capacity: {e}")
+        
+        return True
+    
+    def _update_capacity_metrics(self, job_duration: float, job_success: bool):
+        """Update capacity metrics for this worker"""
+        if not self.capacity_tracker:
+            return
+        
+        try:
+            # Get basic resource usage (simplified - in production, use psutil)
+            import psutil
+            cpu_usage = psutil.cpu_percent(interval=0.1)
+            memory_usage = psutil.virtual_memory().percent
+            disk_usage = psutil.disk_usage('/').percent
+        except ImportError:
+            # Fallback if psutil not available
+            cpu_usage = 50.0  # Default values
+            memory_usage = 60.0
+            disk_usage = 30.0
+        except Exception:
+            cpu_usage = 50.0
+            memory_usage = 60.0
+            disk_usage = 30.0
+        
+        current_jobs = len([job for job in self.job_start_times.keys()])
+        
+        try:
+            self.capacity_tracker.update_worker_capacity(
+                worker_id=self.worker_id,
+                jobs_completed=1 if job_duration > 0 else 0,
+                job_duration=job_duration,
+                job_success=job_success,
+                cpu_usage=cpu_usage,
+                memory_usage=memory_usage,
+                disk_usage=disk_usage,
+                current_jobs=current_jobs
+            )
+        except Exception as e:
+            logger.warning(f"Failed to update capacity metrics: {e}")
 
 # Global health monitor instance
 health_monitor = None

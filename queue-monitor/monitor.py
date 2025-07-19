@@ -112,7 +112,7 @@ class QueueMonitor:
                 return 0
             
             # Count active workers in Redis hash
-            workers = self.redis_client.hgetall('video_workers')
+            workers = self.redis_client.hgetall('scaling_workers')
             active_count = 0
             
             for worker_id, worker_data_str in workers.items():
@@ -140,7 +140,7 @@ class QueueMonitor:
                 return 0
             
             # Count healthy workers
-            workers = self.redis_client.hgetall('video_workers')
+            workers = self.redis_client.hgetall('scaling_workers')
             healthy_count = 0
             
             for worker_id, worker_data_str in workers.items():
@@ -201,8 +201,32 @@ class QueueMonitor:
             logger.error(f"Failed to get queue throughput: {e}")
             return 0.0
     
+    def get_job_statistics(self) -> Dict[str, Any]:
+        """Get job processing statistics from job manager"""
+        try:
+            import sys
+            import os
+            sys.path.append('/app/scaling-controller')
+            from job_manager import JobManager
+            
+            job_manager = JobManager(self.redis_url)
+            if job_manager.connect_redis():
+                return job_manager.get_job_statistics()
+            return {}
+        except Exception as e:
+            logger.error(f"Failed to get job statistics: {e}")
+            return {}
+    
+    def get_workers_with_active_jobs(self) -> int:
+        """Get count of workers currently processing jobs"""
+        try:
+            job_stats = self.get_job_statistics()
+            return job_stats.get('workers_with_jobs', 0)
+        except Exception:
+            return 0
+    
     def calculate_scaling_decision(self, metrics: QueueMetrics) -> Dict[str, Any]:
-        """Calculate if scaling up/down is needed"""
+        """Calculate if scaling up/down is needed with job awareness"""
         now = datetime.now()
         
         # Check cooldown period
@@ -217,38 +241,50 @@ class QueueMonitor:
         active_workers = metrics.active_workers
         healthy_workers = metrics.healthy_workers
         
-        # Calculate target workers based on queue depth
-        if queue_depth == 0:
-            # Keep minimum workers for quick response
-            target_workers = max(1, min(active_workers, 2))
+        # Get job statistics for more informed decisions
+        job_stats = self.get_job_statistics()
+        processing_jobs = job_stats.get('processing_jobs', 0)
+        workers_with_jobs = job_stats.get('workers_with_jobs', 0)
+        
+        # Calculate target workers based on queue depth and active jobs
+        if queue_depth == 0 and processing_jobs == 0:
+            # No work, scale down to minimum but keep some workers ready
+            target_workers = max(self.min_workers, min(active_workers, 2))
+        elif queue_depth > 0 or processing_jobs > 0:
+            # Scale based on total workload (queued + processing)
+            total_workload = queue_depth + processing_jobs
+            # More conservative scaling: 1 worker per 1-2 jobs
+            target_workers = min(max(total_workload, total_workload // 2 + 1), self.max_workers)
         else:
-            # Scale up: 1 worker per 1-2 jobs in queue
-            target_workers = min(queue_depth + 1, self.max_workers)
+            target_workers = active_workers
         
         # Ensure we have minimum workers
         target_workers = max(target_workers, self.min_workers)
         
-        # Determine scaling action
+        # Determine scaling action with job awareness
         if target_workers > active_workers:
-            # Only scale up if we have healthy workers or queue is growing
+            # Only scale up if we have healthy workers
             if healthy_workers >= active_workers * 0.8:  # 80% healthy threshold
                 return {
                     'action': 'scale_up',
-                    'reason': f'queue_depth={queue_depth}, active_workers={active_workers}',
+                    'reason': f'queue_depth={queue_depth}, processing_jobs={processing_jobs}, active_workers={active_workers}',
                     'target_workers': target_workers
                 }
         elif target_workers < active_workers:
-            # Scale down if queue is manageable
-            if queue_depth < active_workers * self.scale_down_threshold:
+            # Only scale down if we have workers not processing jobs
+            idle_workers = active_workers - workers_with_jobs
+            if idle_workers > 0 and queue_depth < active_workers * self.scale_down_threshold:
+                # Don't scale below workers with active jobs
+                safe_target = max(target_workers, workers_with_jobs + 1)
                 return {
                     'action': 'scale_down',
-                    'reason': f'queue_depth={queue_depth}, over_provisioned',
-                    'target_workers': target_workers
+                    'reason': f'queue_depth={queue_depth}, idle_workers={idle_workers}, over_provisioned',
+                    'target_workers': safe_target
                 }
         
         return {
             'action': 'maintain',
-            'reason': 'stable_state',
+            'reason': f'stable_state (queue={queue_depth}, processing={processing_jobs}, workers={active_workers})',
             'target_workers': active_workers
         }
     
@@ -300,16 +336,22 @@ class QueueMonitor:
             self.redis_client.set('current_metrics', json.dumps(metrics_data))
             
             # Store historical metrics (keep last 100 entries)
-            self.redis_client.lpush('metrics_history', json.dumps(metrics_data))
-            self.redis_client.ltrim('metrics_history', 0, 99)
+            self.redis_client.lpush('scaling_metrics_history', json.dumps(metrics_data))
+            self.redis_client.ltrim('scaling_metrics_history', 0, 99)
             
-            # Publish scaling recommendation
+            # Publish scaling recommendation with job context
             if metrics.scaling_recommendation != 'maintain':
+                job_stats = self.get_job_statistics()
                 scaling_msg = {
                     'action': metrics.scaling_recommendation,
                     'target_workers': metrics.target_workers,
                     'timestamp': metrics.timestamp.isoformat(),
-                    'reason': 'queue_monitor_recommendation'
+                    'reason': 'queue_monitor_recommendation',
+                    'job_context': {
+                        'processing_jobs': job_stats.get('processing_jobs', 0),
+                        'pending_jobs': job_stats.get('pending_jobs', 0),
+                        'workers_with_jobs': job_stats.get('workers_with_jobs', 0)
+                    }
                 }
                 self.redis_client.publish('scaling_events', json.dumps(scaling_msg))
                 
