@@ -1,8 +1,8 @@
 # RabbitReels
 
-### Distributed AI Video Platform
+### A Distributed AI Video Platform
 
-RabbitReels is a distributed AI platform that automates short-form video creation, editing, and publishing. Built for creators without traditional video editing skills, RabbitReels uses Python, FastAPI, Next.js, and RabbitMQ to enable rapid content generation from script to screen in under 5 minutes.
+RabbitReels automates short-form video creation, editing, and publishing. Built for creators without traditional video editing skills, RabbitReels uses Python, FastAPI, Next.js, and RabbitMQ to enable rapid content generation from script to screen in under 5 minutes.
 
 RabbitReels began as a personal project to automate short-form video creation, evolving into a platform serving over 50 active monthly users. Initially facing scaling issues, RabbitReels adopted a Redis-based auto-scaling strategy, reducing processing time from 15 minutes down to 2-5 minutes per video.
 
