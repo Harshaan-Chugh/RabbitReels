@@ -37,7 +37,7 @@ The system balances usability, security, and sophistication:
 * **Script Generator**: AI-powered narrative creation tailored to your style
 * **Video Creator**: MP4 rendering with customizable character voices
 * **Publisher**: Automated YouTube upload
-* 🐰 **RabbitMQ**: Orchestrates message queue for the entire pipeline
+* **RabbitMQ**🐰🐇: Orchestrates message queue for the entire pipeline
 * **Redis**: Real-time job tracking and session management
 * **Auto-Scaling**: Dynamically scales workers based on demand
 
@@ -62,11 +62,4 @@ cd RabbitReels
 * Use `.env.example` to set up your `.env`.
 * Set up Google OAuth.
 
-3. Launch services:
-
-```bash
-docker run -d -p 6379:6379 redis:7-alpine
-docker run -d -p 5672:5672 rabbitmq:3-management
-
-cd api && python main.py
-```
+3. Launch Docker services
