@@ -37,7 +37,7 @@ The system balances usability, security, and sophistication:
 * **Script Generator**: AI-powered narrative creation tailored to your style
 * **Video Creator**: MP4 rendering with customizable character voices
 * **Publisher**: Automated YouTube upload
-* 🐰 **RabbitMQ**: Orchestrates message queue for the entire pipeline
+* **RabbitMQ**🐰🐇: Orchestrates message queue for the entire pipeline
 * **Redis**: Real-time job tracking and session management
 * **Auto-Scaling**: Dynamically scales workers based on demand
 
