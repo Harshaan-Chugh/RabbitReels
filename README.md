@@ -62,11 +62,4 @@ cd RabbitReels
 * Use `.env.example` to set up your `.env`.
 * Set up Google OAuth.
 
-3. Launch services:
-
-```bash
-docker run -d -p 6379:6379 redis:7-alpine
-docker run -d -p 5672:5672 rabbitmq:3-management
-
-cd api && python main.py
-```
+3. Launch Docker services
