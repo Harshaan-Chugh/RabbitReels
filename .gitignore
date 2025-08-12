@@ -12,6 +12,8 @@ venv/
 .env.*.local
 .env.production
 .cursorignore
+.claude/*
+.claude
 
 # Production docker compose
 docker-compose.prod.yml
