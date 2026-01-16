@@ -57,4 +57,4 @@ git clone https://github.com/yourusername/RabbitReels.git
 cd RabbitReels
 ```
 2. Configure environment
-3. 3. Launch Docker services
+3. Launch Docker services
