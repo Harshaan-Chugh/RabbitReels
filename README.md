@@ -6,6 +6,7 @@ RabbitReels automates short-form video creation, editing, and publishing. Built 
 
 RabbitReels began as a personal project to automate short-form video creation, evolving into a platform serving over 50 active monthly users at it's peak. Initially facing scaling issues, RabbitReels adopted a Redis-based auto-scaling strategy, reducing processing time from 15 minutes down to 2-5 minutes per video.
 
+Update (2026): RabbitReels is undergoing huge updates to boost processing speed and lower costs. May experience downtime late this Spring.
 ## Features
 
 ### Core Capabilities
@@ -51,15 +52,9 @@ The system balances usability, security, and sophistication:
 ### Setup Instructions
 
 1. Clone repository:
-
 ```bash
 git clone https://github.com/yourusername/RabbitReels.git
 cd RabbitReels
 ```
-
-2. Configure environment:
-
-* Use `.env.example` to set up your `.env`.
-* Set up Google OAuth.
-
-3. Launch Docker services
+2. Configure environment
+3. 3. Launch Docker services
